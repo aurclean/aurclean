@@ -1,0 +1,665 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --radius: 1rem;
+
+  /* AURCLEAN is an all-white interface — cards/sidebar/header/forms/tables all
+     share this same white, separated only by subtle borders and shadows. */
+  --background: #ffffff;
+  --foreground: #101828;
+  --card: #ffffff;
+  --card-foreground: #101828;
+  --popover: #ffffff;
+  --popover-foreground: #101828;
+
+  /* Dark navy — active nav, primary buttons, selected tabs */
+  --primary: #101828;
+  --primary-foreground: #ffffff;
+
+  /* Very light neutral gray secondary surface (buttons, quiet fills) */
+  --secondary: #f4f5f7;
+  --secondary-foreground: #1e293b;
+
+  --muted: #f6f7f9;
+  --muted-foreground: #64748b;
+
+  --accent: #f1f3f6;
+  --accent-foreground: #101828;
+
+  /* AURCLEAN forest-green brand accent — logo mark, brand highlights only */
+  --brand: #0a3b2c;
+  --brand-foreground: #ffffff;
+
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+
+  --border: #e6e8eb;
+  --input: #e6e8eb;
+  --ring: #101828;
+
+  /* AURCLEAN emerald — success states double as the brand's positive accent */
+  --success: #0f9d67;
+  --success-foreground: #ffffff;
+  --warning: #f59e0b;
+  --warning-foreground: #78350f;
+  --info: #0284c7;
+  --info-foreground: #ffffff;
+
+  /* Floating white sidebar card */
+  --sidebar: #ffffff;
+  --sidebar-foreground: #101828;
+  --sidebar-muted: #94a3b8;
+  --sidebar-accent: #101828;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-hover: #f6f7f9;
+  --sidebar-border: #edeef1;
+
+  --chart-1: #101828;
+  --chart-2: #0f9d67;
+  --chart-3: #34d399;
+  --chart-4: #f59e0b;
+  --chart-5: #0284c7;
+  --chart-6: #0a3b2c;
+  --chart-grid: #e6e8eb;
+  --chart-surface: #ffffff;
+}
+
+.dark {
+  --background: #061e16;
+  --foreground: #f8faf9;
+  --card: #092b20;
+  --card-foreground: #f8faf9;
+  --popover: #092b20;
+  --popover-foreground: #f8faf9;
+
+  --primary: #10b981;
+  --primary-foreground: #06261c;
+
+  --secondary: #0b3d2e;
+  --secondary-foreground: #a7f3d0;
+
+  --muted: #0b3d2e;
+  --muted-foreground: #94a3b8;
+
+  --accent: #065f46;
+  --accent-foreground: #d1fae5;
+
+  --brand: #10b981;
+  --brand-foreground: #06261c;
+
+  --destructive: #f87171;
+  --destructive-foreground: #061e16;
+
+  --border: #0d4a38;
+  --input: #0d4a38;
+  --ring: #34d399;
+
+  --success: #34d399;
+  --warning: #fbbf24;
+  --info: #38bdf8;
+
+  --sidebar: #041711;
+  --sidebar-foreground: #f8faf9;
+  --sidebar-muted: #94a3b8;
+  --sidebar-accent: #0b3d2e;
+  --sidebar-accent-foreground: #f8faf9;
+  --sidebar-hover: #0b3d2e;
+  --sidebar-border: #092c21;
+
+  --chart-1: #10b981;
+  --chart-2: #34d399;
+  --chart-3: #6ee7b7;
+  --chart-4: #fbbf24;
+  --chart-5: #38bdf8;
+  --chart-6: #a7f3d0;
+  --chart-grid: #0d4a38;
+  --chart-surface: #092b20;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-muted: var(--sidebar-muted);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-hover: var(--sidebar-hover);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-chart-6: var(--chart-6);
+  --color-chart-grid: var(--chart-grid);
+  --color-chart-surface: var(--chart-surface);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace;
+
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
+}
+
+@keyframes accordion-down {
+  from { height: 0; }
+  to { height: var(--radix-accordion-content-height); }
+}
+@keyframes accordion-up {
+  from { height: var(--radix-accordion-content-height); }
+  to { height: 0; }
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-feature-settings: "rlig" 1, "calt" 1;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* Scan inputs on the shop floor must never be zoomed into on mobile. */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+  @media (min-width: 640px) {
+    input,
+    select,
+    textarea {
+      font-size: inherit;
+    }
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: var(--border);
+    border-radius: 9999px;
+  }
+  .numeric {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+  }
+
+  /*
+   * Thermal printing. The counter sets `data-print-mode="thermal"` on <body>
+   * just before window.print(), which blanks the whole application and leaves
+   * only the sheet — a roll printer has no page furniture to spare.
+   */
+  body[data-print-mode="thermal"] * {
+    visibility: hidden !important;
+  }
+  body[data-print-mode="thermal"] .thermal-print-root,
+  body[data-print-mode="thermal"] .thermal-print-root * {
+    visibility: visible !important;
+  }
+  body[data-print-mode="thermal"] .thermal-print-root {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    border: 0 !important;
+  }
+  body[data-print-mode="thermal"] .thermal-tag {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  body[data-print-mode="thermal"] .thermal-tag + .thermal-tag {
+    break-before: page;
+    page-break-before: always;
+  }
+}
+
+/*
+ * Thermal roll output is one colour on one colour. Everything below is sized in
+ * millimetres so the on-screen preview is the same size as the paper, and every
+ * colour is forced to pure black so a receipt printer's dithering has nothing
+ * to guess at.
+ */
+.thermal-sheet {
+  background: #fff;
+  color: #000;
+  font-family: ui-monospace, "SFMono-Regular", "Menlo", "Consolas", monospace;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.thermal-sheet * {
+  color: #000 !important;
+  border-color: #000 !important;
+}
+
+/* Parked off-canvas until the print stylesheet brings it back on-page. */
+.thermal-print-root {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+}
+
+.thermal-tag {
+  padding: 2mm 2.5mm 3mm;
+  line-height: 1.25;
+}
+
+.thermal-rule {
+  border: 0;
+  border-top: 1px dashed #000;
+  margin: 1.5mm 0;
+}
+
+.thermal-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 2mm;
+}
+
+.thermal-row > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.thermal-row > span:first-child {
+  flex: 1 1 auto;
+}
+
+.thermal-row > span:last-child {
+  flex: 0 0 auto;
+  max-width: 60%;
+  text-align: right;
+}
+
+/* ==========================================================================
+   Motion
+   --------------------------------------------------------------------------
+   One place for every animation in the application. The rules are: fast
+   (120–420ms), small (a few pixels, a few percent), and never in the way of
+   the next click. Everything here collapses to nothing when the reader has
+   asked for reduced motion.
+   ========================================================================== */
+
+@theme inline {
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+
+@keyframes aura-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes aura-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes aura-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.03);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes aura-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-5px);
+  }
+  40% {
+    transform: translateX(5px);
+  }
+  60% {
+    transform: translateX(-3px);
+  }
+  80% {
+    transform: translateX(3px);
+  }
+}
+
+@keyframes aura-ripple {
+  from {
+    opacity: 0.35;
+    transform: scale(0);
+  }
+  to {
+    opacity: 0;
+    transform: scale(2.6);
+  }
+}
+
+@keyframes aura-shimmer {
+  from {
+    background-position: -180% 0;
+  }
+  to {
+    background-position: 180% 0;
+  }
+}
+
+@keyframes aura-scan-sweep {
+  0% {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  88% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+}
+
+@keyframes aura-pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 var(--aura-ring-color, oklch(0.6 0.16 250 / 0.45));
+  }
+  70% {
+    box-shadow: 0 0 0 12px oklch(0.6 0.16 250 / 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 oklch(0.6 0.16 250 / 0);
+  }
+}
+
+@keyframes aura-draw {
+  from {
+    stroke-dashoffset: var(--aura-draw-length, 1200);
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes aura-check {
+  from {
+    stroke-dashoffset: 48;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@utility animate-fade-up {
+  animation: aura-fade-up 260ms var(--ease-out-quart) both;
+}
+
+@utility animate-fade-in-soft {
+  animation: aura-fade-in 200ms var(--ease-out-quart) both;
+}
+
+@utility animate-pop {
+  animation: aura-pop 260ms var(--ease-spring) both;
+}
+
+@utility animate-shake {
+  animation: aura-shake 420ms var(--ease-out-quart) both;
+}
+
+@utility animate-pulse-ring {
+  animation: aura-pulse-ring 1.6s var(--ease-out-quart) infinite;
+}
+
+/* Route content. Each navigation re-runs this, which reads as a page turn. */
+.route-enter {
+  animation: aura-fade-up 240ms var(--ease-out-quart) both;
+}
+
+/* Staggered list entrances — used on card grids and finding lists. */
+.stagger > * {
+  animation: aura-fade-up 260ms var(--ease-out-quart) both;
+}
+.stagger > *:nth-child(1) { animation-delay: 0ms; }
+.stagger > *:nth-child(2) { animation-delay: 30ms; }
+.stagger > *:nth-child(3) { animation-delay: 60ms; }
+.stagger > *:nth-child(4) { animation-delay: 90ms; }
+.stagger > *:nth-child(5) { animation-delay: 120ms; }
+.stagger > *:nth-child(6) { animation-delay: 150ms; }
+.stagger > *:nth-child(7) { animation-delay: 180ms; }
+.stagger > *:nth-child(n + 8) { animation-delay: 200ms; }
+
+/* A card that responds to the pointer without moving the layout. */
+.lift {
+  transition:
+    transform 180ms var(--ease-out-quart),
+    box-shadow 180ms var(--ease-out-quart),
+    border-color 180ms var(--ease-out-quart);
+  will-change: transform;
+}
+.lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px -18px rgb(16 24 40 / 0.45);
+}
+.lift:active {
+  transform: translateY(0);
+  transition-duration: 80ms;
+}
+
+/* Press feedback on anything clickable that is not a Button. */
+.press {
+  transition: transform 120ms var(--ease-out-quart);
+}
+.press:active {
+  transform: scale(0.985);
+}
+
+.ripple-host {
+  position: relative;
+  overflow: hidden;
+}
+
+.ripple-dot {
+  position: absolute;
+  border-radius: 9999px;
+  background: currentColor;
+  pointer-events: none;
+  animation: aura-ripple 520ms var(--ease-out-quart) forwards;
+}
+
+/* Skeletons shimmer rather than blink, which reads as loading not broken. */
+.shimmer {
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in oklch, var(--foreground) 8%, transparent) 50%,
+    transparent 100%
+  );
+  background-size: 180% 100%;
+  animation: aura-shimmer 1.5s linear infinite;
+}
+
+/* Numbers that change should not jump the column width around. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Chart lines draw themselves in on first paint. */
+.chart-draw path.recharts-curve {
+  stroke-dasharray: var(--aura-draw-length, 1600);
+  animation: aura-draw 900ms var(--ease-out-quart) both;
+}
+
+.scan-sweep::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  height: 34%;
+  background: linear-gradient(
+    180deg,
+    transparent,
+    color-mix(in oklch, var(--primary) 26%, transparent),
+    transparent
+  );
+  animation: aura-scan-sweep 1.8s var(--ease-out-quart) infinite;
+  pointer-events: none;
+}
+
+.check-draw path {
+  stroke-dasharray: 48;
+  animation: aura-check 420ms var(--ease-out-quart) 80ms both;
+}
+
+/* The camera scan target on the scan workspace: four bracket corners with a
+   laser line sweeping between them, so the operator knows exactly where to
+   hold the tag. */
+.scan-frame-corner {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  border-color: var(--primary);
+  border-style: solid;
+  border-width: 0;
+}
+.scan-frame-corner-tl {
+  top: 0;
+  left: 0;
+  border-top-width: 4px;
+  border-left-width: 4px;
+  border-top-left-radius: 8px;
+}
+.scan-frame-corner-tr {
+  top: 0;
+  right: 0;
+  border-top-width: 4px;
+  border-right-width: 4px;
+  border-top-right-radius: 8px;
+}
+.scan-frame-corner-bl {
+  bottom: 0;
+  left: 0;
+  border-bottom-width: 4px;
+  border-left-width: 4px;
+  border-bottom-left-radius: 8px;
+}
+.scan-frame-corner-br {
+  bottom: 0;
+  right: 0;
+  border-bottom-width: 4px;
+  border-right-width: 4px;
+  border-bottom-right-radius: 8px;
+}
+.scan-frame-laser {
+  position: absolute;
+  inset-inline: 6%;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--primary),
+    transparent
+  );
+  box-shadow: 0 0 8px 1px color-mix(in oklch, var(--primary) 70%, transparent);
+  animation: aura-scan-laser 1.6s ease-in-out infinite;
+}
+@keyframes aura-scan-laser {
+  0%, 100% {
+    top: 8%;
+    opacity: 0.9;
+  }
+  50% {
+    top: 88%;
+    opacity: 1;
+  }
+}
+
+/* Status pills and progress bars ease between states rather than snapping. */
+[data-slot="status-badge"] {
+  transition:
+    background-color 220ms var(--ease-out-quart),
+    color 220ms var(--ease-out-quart),
+    border-color 220ms var(--ease-out-quart);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .lift:hover {
+    transform: none;
+  }
+  .scan-sweep::after {
+    display: none;
+  }
+  .scan-frame-laser {
+    top: 50% !important;
+  }
+}

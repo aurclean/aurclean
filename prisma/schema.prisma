@@ -1,0 +1,2630 @@
+// Aura Laundry ERP — database schema
+// Architecture: Order → Garment → Processing → Location → Delivery → Payment
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+// PLATFORM_ADMIN is the cross-firm system operator (spec: "Super Admin") —
+// belongs to no single firm (User.firmId is null) and manages the Firms
+// module itself, optionally "entering" a firm to operate inside it.
+// SUPER_ADMIN is the existing per-firm admin role (spec: "Firm Admin") —
+// unchanged in behavior, now naturally bounded to the one firm its
+// branches belong to. Kept the same enum value to avoid rewriting every
+// existing seeded access code and role check; see ROLE_LABELS for the
+// display-name mapping.
+enum UserRole {
+  PLATFORM_ADMIN
+  SUPER_ADMIN
+  MANAGER
+  SCANNER
+}
+
+enum FirmStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  INACTIVE
+}
+
+enum BranchType {
+  HEAD_OFFICE
+  BRANCH
+  CENTRAL_PROCESSING_UNIT
+}
+
+enum OrderType {
+  WALK_IN
+  PICKUP
+  DELIVERY
+}
+
+enum OrderPriority {
+  NORMAL
+  EXPRESS
+  URGENT
+}
+
+enum OrderStatus {
+  RECEIVED
+  SORTING
+  WASHING
+  DRYING
+  IRONING
+  QUALITY_CHECK
+  PACKING
+  READY
+  OUT_FOR_DELIVERY
+  PARTIALLY_DELIVERED
+  DELIVERED
+  CANCELLED
+  REFUNDED
+  ON_HOLD
+}
+
+enum GarmentStatus {
+  RECEIVED
+  SORTING
+  SORTED
+  WASHING
+  WASHED
+  DRYING
+  DRIED
+  IRONING
+  IRONED
+  QC_PENDING
+  QC_PASSED
+  QC_FAILED
+  REWASH
+  REWORK
+  PACKING
+  PACKED
+  READY
+  OUT_FOR_DELIVERY
+  DELIVERED
+  LOST
+  DAMAGED
+  RETURNED
+}
+
+enum ProcessingStage {
+  RECEIVING
+  SORTING
+  WASHING
+  DRYING
+  IRONING
+  QUALITY_CHECK
+  PACKING
+  DISPATCH
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  PASSED
+  FAILED
+  REWASH
+  REWORK
+  SKIPPED
+}
+
+enum PricingMode {
+  PER_PIECE
+  PER_KG
+  FLAT
+}
+
+enum PaymentStatus {
+  UNPAID
+  PARTIALLY_PAID
+  PAID
+  REFUNDED
+  PARTIALLY_REFUNDED
+  OVERDUE
+}
+
+enum PaymentMethod {
+  CASH
+  UPI
+  CARD
+  ONLINE
+  BANK_TRANSFER
+  CREDIT
+  OTHER
+}
+
+enum PaymentProvider {
+  MANUAL
+  RAZORPAY
+  UPI_INTENT
+  CARD_TERMINAL
+}
+
+enum PaymentState {
+  PENDING
+  AUTHORIZED
+  CAPTURED
+  FAILED
+  REFUNDED
+  CANCELLED
+}
+
+enum InvoiceType {
+  ORDER
+  B2B_MONTHLY
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum RefundStatus {
+  REQUESTED
+  APPROVED
+  PROCESSED
+  REJECTED
+}
+
+enum PickupStatus {
+  REQUESTED
+  DRIVER_ASSIGNED
+  DRIVER_ACCEPTED
+  PICKED_UP
+  RECEIVED_AT_LAUNDRY
+  FAILED
+  CANCELLED
+}
+
+enum DeliveryStatus {
+  PENDING
+  DRIVER_ASSIGNED
+  OUT_FOR_DELIVERY
+  DELIVERED
+  FAILED
+  RESCHEDULED
+  CANCELLED
+}
+
+enum ChallanStatus {
+  DRAFT
+  GENERATED
+  READY_FOR_DELIVERY
+  PARTIALLY_DELIVERED
+  DELIVERED
+  CANCELLED
+}
+
+
+enum InventoryCategory {
+  DETERGENT
+  BLEACH
+  FABRIC_SOFTENER
+  STAIN_REMOVER
+  CHEMICAL
+  PACKAGING
+  HANGER
+  COVER
+  TAG
+  LABEL
+  OTHER
+}
+
+enum InventoryTxnType {
+  STOCK_IN
+  STOCK_OUT
+  TRANSFER_IN
+  TRANSFER_OUT
+  ADJUSTMENT
+  CONSUMPTION
+  RETURN
+  WASTAGE
+}
+
+enum PurchaseOrderStatus {
+  DRAFT
+  SENT
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CANCELLED
+  CLOSED
+}
+
+enum PurchaseInvoiceStatus {
+  UNPAID
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum B2BAccountType {
+  HOTEL
+  HOSPITAL
+  HOSTEL
+  RESTAURANT
+  SALON
+  GYM
+  CORPORATE
+  OTHER
+}
+
+enum ContractStatus {
+  DRAFT
+  ACTIVE
+  EXPIRED
+  TERMINATED
+}
+
+enum BillingCycle {
+  WEEKLY
+  FORTNIGHTLY
+  MONTHLY
+}
+
+enum ScheduleType {
+  PICKUP
+  DELIVERY
+}
+
+enum ComplaintType {
+  DAMAGED_GARMENT
+  LOST_GARMENT
+  MISSING_GARMENT
+  COLOR_FADING
+  STAIN_NOT_REMOVED
+  WRONG_GARMENT
+  WRONG_QUANTITY
+  LATE_DELIVERY
+  OTHER
+}
+
+enum ComplaintStatus {
+  OPEN
+  UNDER_INVESTIGATION
+  AWAITING_CUSTOMER
+  RESOLVED
+  REJECTED
+  CLOSED
+}
+
+enum ComplaintPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum ComplaintResolution {
+  REFUND
+  REWASH
+  REWORK
+  COMPENSATION
+  REPLACEMENT
+  APOLOGY
+  NO_ACTION
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+}
+
+enum NotificationEvent {
+  ORDER_RECEIVED
+  PROCESSING_STARTED
+  ORDER_READY
+  OUT_FOR_DELIVERY
+  DELIVERED
+  PAYMENT_RECEIVED
+  PAYMENT_REMINDER
+  ORDER_DELAYED
+  PICKUP_SCHEDULED
+  COMPLAINT_REGISTERED
+  COMPLAINT_RESOLVED
+}
+
+enum NotificationStatus {
+  PENDING
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  HALF_DAY
+  LEAVE
+  WEEKLY_OFF
+  HOLIDAY
+}
+
+enum LeaveType {
+  CASUAL
+  SICK
+  EARNED
+  UNPAID
+  MATERNITY
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum ExpenseCategory {
+  RENT
+  SALARY
+  UTILITIES
+  MAINTENANCE
+  TRANSPORT
+  CONSUMABLES
+  MARKETING
+  MISCELLANEOUS
+}
+
+enum ExpenseStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  PAID
+}
+
+// ============================================================================
+// ORGANISATION, IDENTITY & ACCESS CONTROL
+// ============================================================================
+
+/// A tenant. Every business-data row in the system belongs to exactly one
+/// Firm (directly, or transitively through a Branch that does) — this is
+/// the hard boundary a PLATFORM_ADMIN operates above and every other role
+/// operates strictly inside.
+model Firm {
+  id          String     @id @default(cuid())
+  code        String     @unique
+  name        String
+  legalName   String?
+  addressLine String?
+  city        String?
+  state       String?
+  pincode     String?
+  phone       String?
+  email       String?
+  gstin       String?
+  pan         String?
+  website     String?
+  logoUrl     String?
+  status      FirmStatus @default(ACTIVE)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  branches          Branch[]
+  users             User[]
+  auditLogs         AuditLog[]
+  settings          Setting[]
+  services          Service[]
+  garmentTypes      GarmentType[]
+  orders            Order[]
+  garments          Garment[]
+  invoices          Invoice[]
+  payments          Payment[]
+  deliveries        Delivery[]
+  deliveryChallans  DeliveryChallan[]
+  inventoryItems    InventoryItem[]
+  suppliers         Supplier[]
+  purchaseOrders    PurchaseOrder[]
+  b2bAccounts       B2BAccount[]
+  complaints        Complaint[]
+  expenses          Expense[]
+  customers         Customer[]
+  scanEvents        ScanEvent[]
+  bankAccounts      BankAccount[]
+  financialLedgers  FinancialLedger[]
+  cashTransactions  CashTransaction[]
+  whatsAppTemplates WhatsAppTemplate[]
+  whatsAppSessions  WhatsAppSession[]
+  whatsAppLogs      WhatsAppLog[]
+
+  @@index([status])
+  @@map("firms")
+}
+
+model Branch {
+  firmId String
+  firm   Firm   @relation(fields: [firmId], references: [id], onDelete: Restrict)
+  id       String     @id @default(cuid())
+  code     String
+  name     String
+  type     BranchType @default(BRANCH)
+  parentId String?
+  parent   Branch?    @relation("BranchHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children Branch[]   @relation("BranchHierarchy")
+
+  addressLine String?
+  city        String?
+  state       String?
+  pincode     String?
+  phone       String?
+  email       String?
+  gstNumber   String?
+
+  openingTime String?
+  closingTime String?
+  isActive    Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users                 User[]
+  orders                Order[]
+  garments              Garment[]
+  processingTasks       ProcessingTask[]
+  processingBatches     ProcessingBatch[]
+  invoices              Invoice[]
+  payments              Payment[]
+  pickups               Pickup[]
+  deliveries            Delivery[]
+  deliveryChallans      DeliveryChallan[]
+  inventoryStocks       InventoryStock[]
+  inventoryTransactions InventoryTransaction[]
+  purchaseOrders        PurchaseOrder[]
+  goodsReceipts         GoodsReceipt[]
+  purchaseReturns       PurchaseReturn[]
+  complaints            Complaint[]
+  expenses              Expense[]
+  b2bAccounts           B2BAccount[]
+  attendances           Attendance[]
+  shifts                Shift[]
+  notifications         Notification[]
+  auditLogs             AuditLog[]
+  garmentHistory        GarmentStatusHistory[]
+  customers             Customer[]
+  scanEvents            ScanEvent[]
+  garmentScans          GarmentScan[]
+  garmentExceptions     GarmentException[]
+  bankAccounts          BankAccount[]
+  cashAccount           CashAccount?
+  financialLedgers      FinancialLedger[]
+  bankTransactions      BankTransaction[]
+  cashTransactions      CashTransaction[]
+  reconciliations       Reconciliation[]
+
+  @@index([parentId])
+  @@index([isActive])
+  @@unique([firmId, code])
+  @@index([firmId])
+  @@map("branches")
+}
+
+model User {
+  firmId String?
+  firm   Firm?  @relation(fields: [firmId], references: [id], onDelete: SetNull)
+  id           String     @id @default(cuid())
+  employeeCode String?    @unique
+  name         String
+  email        String     @unique
+  phone        String?
+  /// The single credential used to sign in — a short code entered on the
+  /// access-code screen instead of an email/password pair.
+  accessCode   String     @unique
+  role         UserRole   @default(SCANNER)
+  status       UserStatus @default(ACTIVE)
+  branchId     String?
+  branch       Branch?    @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  image         String?
+  emailVerified DateTime?
+  lastLoginAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  accounts     Account[]
+  sessions     Session[]
+  permissions  UserPermission[]
+  staffProfile StaffProfile?
+  driver       Driver?
+
+  createdOrders        Order[]                  @relation("OrderCreatedBy")
+  garmentScans         Garment[]                @relation("GarmentLastScannedBy")
+  garmentHistory       GarmentStatusHistory[]
+  assignedTasks        ProcessingTask[]         @relation("TaskAssignee")
+  taskHistory          ProcessingHistory[]
+  batches              ProcessingBatch[]        @relation("BatchOperator")
+  paymentsReceived     Payment[]                @relation("PaymentReceivedBy")
+  refundsProcessed     Refund[]                 @relation("RefundProcessedBy")
+  inventoryTxns        InventoryTransaction[]
+  purchaseOrdersMade   PurchaseOrder[]          @relation("PurchaseOrderCreatedBy")
+  goodsReceived        GoodsReceipt[]           @relation("GoodsReceivedBy")
+  supplierPayments     SupplierPayment[]        @relation("SupplierPaymentBy")
+  complaintsAssigned   Complaint[]              @relation("ComplaintAssignee")
+  complaintsCreated    Complaint[]              @relation("ComplaintCreatedBy")
+  complaintsResolved   Complaint[]              @relation("ComplaintResolvedBy")
+  complaintAttachments ComplaintAttachment[]
+  garmentPhotos        GarmentPhoto[]
+  attendances          Attendance[]
+  leaves               Leave[]                  @relation("LeaveUser")
+  leavesApproved       Leave[]                  @relation("LeaveApprover")
+  expensesCreated      Expense[]                @relation("ExpenseCreatedBy")
+  expensesApproved     Expense[]                @relation("ExpenseApprovedBy")
+  auditLogs            AuditLog[]
+  invoicesIssued       Invoice[]                @relation("InvoiceIssuedBy")
+  customersCreated     Customer[]               @relation("CustomerCreatedBy")
+  scanEvents           ScanEvent[]              @relation("ScanEventScannedBy")
+  garmentScanReads     GarmentScan[]            @relation("GarmentScanBy")
+  exceptionsReported   GarmentException[]       @relation("GarmentExceptionReporter")
+  exceptionsResolved   GarmentException[]       @relation("GarmentExceptionResolver")
+  ledgerEntriesCreated FinancialLedger[]        @relation("LedgerCreatedBy")
+  bankTxnsCreated      BankTransaction[]        @relation("BankTxnCreatedBy")
+  cashTxnsCreated      CashTransaction[]        @relation("CashTxnCreatedBy")
+  reconciliationsCreated Reconciliation[]       @relation("ReconciliationCreatedBy")
+  sentWhatsAppLogs     WhatsAppLog[]            @relation("WhatsAppSentBy")
+  createdDeliveryChallans DeliveryChallan[]    @relation("ChallanCreatedBy")
+
+  @@index([branchId])
+  @@index([role])
+  @@index([status])
+  @@index([firmId])
+  @@map("users")
+}
+
+model Permission {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  module      String
+  description String
+  createdAt   DateTime @default(now())
+
+  roles RolePermission[]
+  users UserPermission[]
+
+  @@index([module])
+  @@map("permissions")
+}
+
+model RolePermission {
+  id           String     @id @default(cuid())
+  role         UserRole
+  permissionId String
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+
+  @@unique([role, permissionId])
+  @@index([role])
+  @@map("role_permissions")
+}
+
+model UserPermission {
+  id           String     @id @default(cuid())
+  userId       String
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permissionId String
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  granted      Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+
+  @@unique([userId, permissionId])
+  @@index([userId])
+  @@map("user_permissions")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expires      DateTime
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+model AuditLog {
+  firmId String?
+  firm   Firm?  @relation(fields: [firmId], references: [id], onDelete: SetNull)
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  branchId  String?
+  branch    Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  action    String
+  entity    String
+  entityId  String?
+  summary   String?
+  before    Json?
+  after     Json?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([userId])
+  @@index([createdAt])
+  @@index([firmId])
+  @@map("audit_logs")
+}
+
+model Sequence {
+  key       String   @id
+  value     Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@map("sequences")
+}
+
+model Setting {
+  firmId String
+  firm   Firm   @relation(fields: [firmId], references: [id], onDelete: Restrict)
+  key       String
+  value     String
+  category  String   @default("general")
+  updatedAt DateTime @updatedAt
+
+  @@id([firmId, key])
+  @@index([firmId])
+  @@map("settings")
+}
+
+// ============================================================================
+// STAFF
+// ============================================================================
+
+model StaffProfile {
+  id               String    @id @default(cuid())
+  userId           String    @unique
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  department       String?
+  designation      String?
+  dateOfJoining    DateTime?
+  monthlySalary    Decimal?  @db.Decimal(12, 2)
+  emergencyContact String?
+  addressLine      String?
+  idProofType      String?
+  idProofNumber    String?
+  shiftId          String?
+  shift            Shift?    @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  notes            String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([shiftId])
+  @@map("staff_profiles")
+}
+
+model Shift {
+  id        String   @id @default(cuid())
+  name      String
+  branchId  String?
+  branch    Branch?  @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  startTime String
+  endTime   String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  staffProfiles StaffProfile[]
+  attendances   Attendance[]
+
+  @@index([branchId])
+  @@map("shifts")
+}
+
+model Attendance {
+  id       String           @id @default(cuid())
+  userId   String
+  user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branchId String?
+  branch   Branch?          @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  date     DateTime         @db.Date
+  status   AttendanceStatus @default(PRESENT)
+  checkIn  DateTime?
+  checkOut DateTime?
+  shiftId  String?
+  shift    Shift?           @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  notes    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, date])
+  @@index([branchId, date])
+  @@map("attendances")
+}
+
+model Leave {
+  id           String      @id @default(cuid())
+  userId       String
+  user         User        @relation("LeaveUser", fields: [userId], references: [id], onDelete: Cascade)
+  type         LeaveType   @default(CASUAL)
+  fromDate     DateTime    @db.Date
+  toDate       DateTime    @db.Date
+  reason       String?
+  status       LeaveStatus @default(PENDING)
+  approvedById String?
+  approvedBy   User?       @relation("LeaveApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  decidedAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@map("leaves")
+}
+
+model Driver {
+  id            String  @id @default(cuid())
+  userId        String  @unique
+  user          User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  licenseNumber String?
+  vehicleNumber String?
+  vehicleType   String?
+  isAvailable   Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  pickups    Pickup[]
+  deliveries Delivery[]
+
+  @@map("drivers")
+}
+
+// ============================================================================
+// CATALOGUE — SERVICES & GARMENT TYPES
+// ============================================================================
+
+model Service {
+  firmId String
+  firm   Firm   @relation(fields: [firmId], references: [id], onDelete: Restrict)
+  id              String            @id @default(cuid())
+  code            String
+  name            String
+  description     String?
+  pricingMode     PricingMode       @default(PER_PIECE)
+  basePrice       Decimal           @db.Decimal(12, 2)
+  turnaroundHours Int               @default(48)
+  stages          ProcessingStage[]
+  isActive        Boolean           @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  rates      ServiceRate[]
+  orderItems OrderItem[]
+  garments   Garment[]
+  rateCards  B2BRateCard[]
+
+  @@index([isActive])
+  @@unique([firmId, code])
+  @@index([firmId])
+  @@map("services")
+}
+
+model GarmentType {
+  firmId String
+  firm   Firm   @relation(fields: [firmId], references: [id], onDelete: Restrict)
+  id               String           @id @default(cuid())
+  code             String
+  name             String
+  /// Loose merchandising grouping, kept for the catalogue screens.
+  category         String           @default("GENERAL")
+  /// The tracking bucket the shop floor counts in. Drives the garment id
+  /// prefix, the dashboard tiles and the mismatch centre.
+  trackingCategory TrackingCategory @default(OTHER)
+  defaultWeightKg  Decimal?         @db.Decimal(8, 3)
+  icon             String?
+  isActive         Boolean          @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  rates      ServiceRate[]
+  orderItems OrderItem[]
+  garments   Garment[]
+  rateCards  B2BRateCard[]
+
+  @@index([isActive])
+  @@index([trackingCategory])
+  @@unique([firmId, code])
+  @@index([firmId])
+  @@map("garment_types")
+}
+
+model ServiceRate {
+  id            String      @id @default(cuid())
+  serviceId     String
+  service       Service     @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  garmentTypeId String
+  garmentType   GarmentType @relation(fields: [garmentTypeId], references: [id], onDelete: Cascade)
+  price         Decimal     @db.Decimal(12, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([serviceId, garmentTypeId])
+  @@index([serviceId])
+  @@map("service_rates")
+}
+
+// ============================================================================
+// ORDERS
+// ============================================================================
+
+model Order {
+  firmId String
+  firm   Firm   @relation(fields: [firmId], references: [id], onDelete: Restrict)
+  id            String        @id @default(cuid())
+  orderNumber   String        @unique
+  branchId      String
+  branch        Branch        @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  type          OrderType     @default(WALK_IN)
+  priority      OrderPriority @default(NORMAL)
+  status        OrderStatus   @default(RECEIVED)
+  paymentStatus PaymentStatus @default(UNPAID)
+
+  // Customer details are captured on the order itself (billing / pickup / delivery).
+  customerName  String
+  customerPhone String
+  customerEmail String?
+  addressLine   String?
+  city          String?
+  pincode       String?
+  landmark      String?
+
+  // The order keeps its own copy of the details above so an invoice never
+  // changes when a customer record is later edited; the link is for history.
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  b2bAccountId String?
+  b2bAccount   B2BAccount? @relation(fields: [b2bAccountId], references: [id], onDelete: SetNull)
+
+  placedAt           DateTime  @default(now())
+  expectedDeliveryAt DateTime
+  readyAt            DateTime?
+  deliveredAt        DateTime?
+  cancelledAt        DateTime?
+  cancellationReason String?
+
+  subtotal          Decimal @default(0) @db.Decimal(12, 2)
+  discountAmount    Decimal @default(0) @db.Decimal(12, 2)
+  discountReason    String?
+  taxableAmount     Decimal @default(0) @db.Decimal(12, 2)
+  gstRate           Decimal @default(18) @db.Decimal(5, 2)
+  gstAmount         Decimal @default(0) @db.Decimal(12, 2)
+  totalAmount       Decimal @default(0) @db.Decimal(12, 2)
+  paidAmount        Decimal @default(0) @db.Decimal(12, 2)
+  outstandingAmount Decimal @default(0) @db.Decimal(12, 2)
+  refundedAmount    Decimal @default(0) @db.Decimal(12, 2)
+
+  totalPieces   Int     @default(0)
+  totalWeightKg Decimal @default(0) @db.Decimal(10, 3)
+
+  specialInstructions String?
+  stainNotes          String?
+  damageNotes         String?
+
+  tagPrintCount    Int       @default(0)
+  tagLastPrintedAt DateTime?
+
+  createdById String?
+  createdBy   User?   @relation("OrderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items         OrderItem[]
+  garments      Garment[]
+  statusHistory OrderStatusHistory[]
+  invoices      Invoice[]
+  payments      Payment[]
+  refunds       Refund[]
+  pickups       Pickup[]
+  deliveries    Delivery[]
+  deliveryChallans DeliveryChallan[]
+  complaints    Complaint[]
+  notifications Notification[]
+  invoiceLines  InvoiceLine[]
+  scanEvents    ScanEvent[]
+  garmentScans  GarmentScan[]
+  contextScans  GarmentScan[]        @relation("GarmentScanContext")
+  whatsAppLogs  WhatsAppLog[]
+
+  @@index([branchId, status])
+  @@index([customerPhone])
+  @@index([customerId])
+  @@index([placedAt])
+  @@index([expectedDeliveryAt])
+  @@index([paymentStatus])
+  @@index([b2bAccountId])
+  @@index([firmId])
+  @@map("orders")
+}
+
+model OrderItem {
+  id            String      @id @default(cuid())
+  orderId       String
+  order         Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  serviceId     String
+  service       Service     @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  garmentTypeId String
+  garmentType   GarmentType @relation(fields: [garmentTypeId], references: [id], onDelete: Restrict)
+
+  quantity    Int         @default(1)
+  weightKg    Decimal     @default(0) @db.Decimal(10, 3)
+  pricingMode PricingMode @default(PER_PIECE)
+  unitPrice   Decimal     @db.Decimal(12, 2)
+  lineTotal   Decimal     @db.Decimal(12, 2)
+  notes       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  garments Garment[]
+
+  @@index([orderId])
+  @@index([serviceId])
+  @@map("order_items")
+}
+
+model OrderStatusHistory {
+  id         String       @id @default(cuid())
+  orderId    String
+  order      Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  fromStatus OrderStatus?
+  toStatus   OrderStatus
+  userId     String?
+  userName   String?
+  note       String?
+  createdAt  DateTime     @default(now())
+
+  @@index([orderId, createdAt])
+  @@map("order_status_history")
+}
+
+// ============================================================================
+// GARMENTS — the operational heart of the system
+// ============================================================================
+
+model Garment {
+  firmId String
+  firm   Firm   @relation(fields: [firmId], references: [id], onDelete: Restrict)
+  id           String @id @default(cuid())
+  garmentCode  String @unique
+  qrPayload    String @unique
+  barcodeValue String @unique
+
+  orderId          String
+  order            Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderItemId      String?
+  orderItem        OrderItem?       @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
+  garmentTypeId    String
+  garmentType      GarmentType      @relation(fields: [garmentTypeId], references: [id], onDelete: Restrict)
+  /// Copied from the garment type at intake so a later catalogue edit cannot
+  /// move a garment that is already tagged and on the floor.
+  trackingCategory TrackingCategory @default(OTHER)
+  serviceId        String
+  service          Service          @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+
+  branchId String
+  branch   Branch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  status       GarmentStatus   @default(RECEIVED)
+  currentStage ProcessingStage @default(RECEIVING)
+
+  color       String?
+  brand       String?
+  size        String?
+  fabric      String?
+  stainNotes  String?
+  damageNotes String?
+  rewashCount Int     @default(0)
+  reworkCount Int     @default(0)
+
+  lastScannedAt   DateTime?
+  lastScannedById String?
+  lastScannedBy   User?     @relation("GarmentLastScannedBy", fields: [lastScannedById], references: [id], onDelete: SetNull)
+
+  deliveredAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  statusHistory   GarmentStatusHistory[]
+  tasks           ProcessingTask[]
+  photos          GarmentPhoto[]
+  complaints      Complaint[]
+  scans           GarmentScan[]
+  exceptions      GarmentException[]
+  challanItems    DeliveryChallanItem[]
+
+  @@index([orderId])
+  @@index([branchId, status])
+  @@index([currentStage])
+  @@index([garmentTypeId])
+  @@index([branchId, trackingCategory, status])
+  @@index([firmId])
+  @@map("garments")
+}
+
+/// Immutable ledger — rows are only ever inserted, never updated or deleted.
+model GarmentStatusHistory {
+  id         String          @id @default(cuid())
+  garmentId  String
+  garment    Garment         @relation(fields: [garmentId], references: [id], onDelete: Cascade)
+  fromStatus GarmentStatus?
+  toStatus   GarmentStatus
+  stage      ProcessingStage
+  branchId   String?
+  branch     Branch?         @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  userId     String?
+  user       User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userName   String?
+  note       String?
+  scannedVia String?
+  createdAt  DateTime        @default(now())
+
+  @@index([garmentId, createdAt])
+  @@index([createdAt])
+  @@map("garment_status_history")
+}
+
+model GarmentPhoto {
+  id           String   @id @default(cuid())
+  garmentId    String
+  garment      Garment  @relation(fields: [garmentId], references: [id], onDelete: Cascade)
+  url          String
+  storageKey   String
+  mimeType     String?
+  sizeBytes    Int?
+  kind         String   @default("INTAKE")
+  caption      String?
+  uploadedById String?
+  uploadedBy   User?    @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  createdAt    DateTime @default(now())
+
+  @@index([garmentId])
+  @@map("garment_photos")
+}
+
+// ============================================================================
+// PROCESSING
+// ============================================================================
+
+model ProcessingBatch {
+  id          String          @id @default(cuid())
+  batchCode   String          @unique
+  stage       ProcessingStage
+  branchId    String
+  branch      Branch          @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  status      TaskStatus      @default(PENDING)
+  operatorId  String?
+  operator    User?           @relation("BatchOperator", fields: [operatorId], references: [id], onDelete: SetNull)
+  startedAt   DateTime?
+  completedAt DateTime?
+  notes       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tasks ProcessingTask[]
+
+  @@index([branchId, stage, status])
+  @@map("processing_batches")
+}
+
+model ProcessingTask {
+  id        String          @id @default(cuid())
+  garmentId String
+  garment   Garment         @relation(fields: [garmentId], references: [id], onDelete: Cascade)
+  stage     ProcessingStage
+  status    TaskStatus      @default(PENDING)
+  branchId  String
+  branch    Branch          @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  assignedToId String?
+  assignedTo   User?   @relation("TaskAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  batchId String?
+  batch   ProcessingBatch? @relation(fields: [batchId], references: [id], onDelete: SetNull)
+
+  sequence        Int       @default(0)
+  startedAt       DateTime?
+  completedAt     DateTime?
+  durationSeconds Int?
+  failureReason   String?
+  notes           String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  history ProcessingHistory[]
+
+  @@unique([garmentId, stage])
+  @@index([branchId, stage, status])
+  @@index([assignedToId])
+  @@index([batchId])
+  @@map("processing_tasks")
+}
+
+model ProcessingHistory {
+  id         String         @id @default(cuid())
+  taskId     String
+  task       ProcessingTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  fromStatus TaskStatus?
+  toStatus   TaskStatus
+  userId     String?
+  user       User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userName   String?
+  note       String?
+  createdAt  DateTime       @default(now())
+
+  @@index([taskId, createdAt])
+  @@map("processing_history")
+}
+
+// ============================================================================
+// BILLING & PAYMENTS
+// ============================================================================
+
+model Invoice {
+  firmId String
+  firm   Firm   @relation(fields: [firmId], references: [id], onDelete: Restrict)
+  id            String        @id @default(cuid())
+  invoiceNumber String        @unique
+  type          InvoiceType   @default(ORDER)
+  status        InvoiceStatus @default(ISSUED)
+  branchId      String
+  branch        Branch        @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  orderId String?
+  order   Order?  @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  // The order keeps its own copy of the details above so an invoice never
+  // changes when a customer record is later edited; the link is for history.
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  b2bAccountId String?
+  b2bAccount   B2BAccount? @relation(fields: [b2bAccountId], references: [id], onDelete: SetNull)
+  periodStart  DateTime?
+  periodEnd    DateTime?
+
+  billToName    String
+  billToPhone   String?
+  billToEmail   String?
+  billToAddress String?
+  billToGstin   String?
+
+  subtotal       Decimal @default(0) @db.Decimal(12, 2)
+  discountAmount Decimal @default(0) @db.Decimal(12, 2)
+  taxableAmount  Decimal @default(0) @db.Decimal(12, 2)
+  gstRate        Decimal @default(18) @db.Decimal(5, 2)
+  cgstAmount     Decimal @default(0) @db.Decimal(12, 2)
+  sgstAmount     Decimal @default(0) @db.Decimal(12, 2)
+  igstAmount     Decimal @default(0) @db.Decimal(12, 2)
+  totalAmount    Decimal @default(0) @db.Decimal(12, 2)
+  amountPaid     Decimal @default(0) @db.Decimal(12, 2)
+  amountDue      Decimal @default(0) @db.Decimal(12, 2)
+
+  issuedAt DateTime  @default(now())
+  dueAt    DateTime?
+  notes    String?
+
+  issuedById String?
+  issuedBy   User?   @relation("InvoiceIssuedBy", fields: [issuedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lines    InvoiceLine[]
+  payments Payment[]
+  refunds  Refund[]
+
+  @@index([branchId, issuedAt])
+  @@index([orderId])
+  @@index([b2bAccountId])
+  @@index([status])
+  @@index([firmId])
+  @@map("invoices")
+}
+
+model InvoiceLine {
+  id          String  @id @default(cuid())
+  invoiceId   String
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  orderId     String?
+  order       Order?  @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  description String
+  quantity    Decimal @default(1) @db.Decimal(12, 3)
+  unitPrice   Decimal @db.Decimal(12, 2)
+  lineTotal   Decimal @db.Decimal(12, 2)
+
+  createdAt DateTime @default(now())
+
+  @@index([invoiceId])
+  @@map("invoice_lines")
+}
+
+model Payment {
+  firmId String
+  firm   Firm   @relation(fields: [firmId], references: [id], onDelete: Restrict)
+  id            String   @id @default(cuid())
+  paymentNumber String   @unique
+  branchId      String
+  branch        Branch   @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  orderId       String?
+  order         Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  invoiceId     String?
+  invoice       Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  amount   Decimal         @db.Decimal(12, 2)
+  method   PaymentMethod   @default(CASH)
+  provider PaymentProvider @default(MANUAL)
+  state    PaymentState    @default(CAPTURED)
+
+  providerOrderId   String?
+  providerPaymentId String?
+  providerSignature String?
+  reference         String?
+  isAdvance         Boolean @default(false)
+  notes             String?
+
+  paidAt       DateTime @default(now())
+  receivedById String?
+  receivedBy   User?    @relation("PaymentReceivedBy", fields: [receivedById], references: [id], onDelete: SetNull)
+
+  bankAccountId String?
+  bankAccount   BankAccount? @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  refunds Refund[]
+
+  @@index([branchId, paidAt])
+  @@index([orderId])
+  @@index([invoiceId])
+  @@index([providerPaymentId])
+  @@index([firmId])
+  @@map("payments")
+}
+
+model Refund {
+  id           String   @id @default(cuid())
+  refundNumber String   @unique
+  orderId      String?
+  order        Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  invoiceId    String?
+  invoice      Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  paymentId    String?
+  payment      Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+  amount        Decimal       @db.Decimal(12, 2)
+  method        PaymentMethod @default(CASH)
+  status        RefundStatus  @default(REQUESTED)
+  reason        String
+  notes         String?
+  processedById String?
+  processedBy   User?         @relation("RefundProcessedBy", fields: [processedById], references: [id], onDelete: SetNull)
+  processedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orderId])
+  @@index([status])
+  @@map("refunds")
+}
+
+// ============================================================================
+// PICKUP & DELIVERY
+// ============================================================================
+
+model Pickup {
+  id           String       @id @default(cuid())
+  pickupNumber String       @unique
+  orderId      String
+  order        Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  branchId     String
+  branch       Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  status       PickupStatus @default(REQUESTED)
+
+  driverId String?
+  driver   Driver? @relation(fields: [driverId], references: [id], onDelete: SetNull)
+
+  scheduledAt DateTime
+  assignedAt  DateTime?
+  acceptedAt  DateTime?
+  pickedUpAt  DateTime?
+  receivedAt  DateTime?
+
+  contactName   String
+  contactPhone  String
+  addressLine   String
+  landmark      String?
+  failureReason String?
+  notes         String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([branchId, status])
+  @@index([driverId, scheduledAt])
+  @@index([orderId])
+  @@map("pickups")
+}
+
+model Delivery {
+  firmId String
+  firm   Firm   @relation(fields: [firmId], references: [id], onDelete: Restrict)
+  id             String         @id @default(cuid())
+  deliveryNumber String         @unique
+  orderId        String
+  order          Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  branchId       String
+  branch         Branch         @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  status         DeliveryStatus @default(PENDING)
+
+  driverId String?
+  driver   Driver? @relation(fields: [driverId], references: [id], onDelete: SetNull)
+
+  scheduledAt    DateTime
+  assignedAt     DateTime?
+  dispatchedAt   DateTime?
+  deliveredAt    DateTime?
+  rescheduledFor DateTime?
+
+  contactName  String
+  contactPhone String
+  addressLine  String
+  landmark     String?
+
+  amountToCollect  Decimal        @default(0) @db.Decimal(12, 2)
+  amountCollected  Decimal        @default(0) @db.Decimal(12, 2)
+  collectionMethod PaymentMethod?
+
+  isPartial      Boolean @default(false)
+  garmentCount   Int     @default(0)
+  attemptCount   Int     @default(0)
+  failureReason  String?
+  receivedByName String?
+  proofPhotoUrl  String?
+  signatureUrl   String?
+  notes          String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([branchId, status])
+  @@index([driverId, scheduledAt])
+  @@index([orderId])
+  @@index([firmId])
+  @@map("deliveries")
+}
+
+// ============================================================================
+// DELIVERY CHALLAN
+// ============================================================================
+
+model DeliveryChallan {
+  firmId String
+  firm   Firm   @relation(fields: [firmId], references: [id], onDelete: Restrict)
+  id                   String        @id @default(cuid())
+  challanNumber        String        @unique
+  orderId              String
+  order                Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  branchId             String
+  branch               Branch        @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  customerId           String?
+  customer             Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  customerName         String
+  customerPhone        String
+  customerAddress      String?
+
+  challanDate          DateTime      @default(now())
+  deliveryDate         DateTime?
+  expectedDeliveryDate DateTime?
+
+  status               ChallanStatus @default(DRAFT)
+  paymentStatus        PaymentStatus @default(UNPAID)
+
+  subtotal             Decimal       @default(0) @db.Decimal(12, 2)
+  discountAmount       Decimal       @default(0) @db.Decimal(12, 2)
+  taxableAmount        Decimal       @default(0) @db.Decimal(12, 2)
+  gstRate              Decimal       @default(18) @db.Decimal(5, 2)
+  gstAmount            Decimal       @default(0) @db.Decimal(12, 2)
+  grandTotal           Decimal       @default(0) @db.Decimal(12, 2)
+  paidAmount           Decimal       @default(0) @db.Decimal(12, 2)
+  balanceAmount        Decimal       @default(0) @db.Decimal(12, 2)
+
+  notes                String?
+  terms                String?
+  deliveredByName      String?
+  receivedByName       String?
+
+  createdById          String?
+  createdBy            User?         @relation("ChallanCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  items                DeliveryChallanItem[]
+  statusHistory        DeliveryChallanHistory[]
+
+  @@index([branchId, status])
+  @@index([orderId])
+  @@index([customerId])
+  @@index([challanNumber])
+  @@index([challanDate])
+  @@index([firmId])
+  @@map("delivery_challans")
+}
+
+model DeliveryChallanItem {
+  id             String          @id @default(cuid())
+  challanId      String
+  challan        DeliveryChallan @relation(fields: [challanId], references: [id], onDelete: Cascade)
+  garmentId      String?
+  garment        Garment?        @relation(fields: [garmentId], references: [id], onDelete: SetNull)
+  garmentCode    String
+  category       String
+  description    String
+  service        String
+  quantity       Int             @default(1)
+  unitPrice      Decimal         @db.Decimal(12, 2)
+  amount         Decimal         @db.Decimal(12, 2)
+  status         GarmentStatus   @default(READY)
+
+  createdAt      DateTime        @default(now())
+
+  @@index([challanId])
+  @@index([garmentId])
+  @@map("delivery_challan_items")
+}
+
+model DeliveryChallanHistory {
+  id         String          @id @default(cuid())
+  challanId  String
+  challan    DeliveryChallan @relation(fields: [challanId], references: [id], onDelete: Cascade)
+  fromStatus ChallanStatus?
+  toStatus   ChallanStatus
+  userId     String?
+  userName   String?
+  note       String?
+  createdAt  DateTime        @default(now())
+
+  @@index([challanId, createdAt])
+  @@map("delivery_challan_history")
+}
+
+
+// ============================================================================
+// INVENTORY
+// ============================================================================
+
+model InventoryItem {
+  firmId String
+  firm   Firm   @relation(fields: [firmId], references: [id], onDelete: Restrict)
+  id            String            @id @default(cuid())
+  sku           String
+  name          String
+  category      InventoryCategory @default(OTHER)
+  unit          String            @default("pcs")
+  description   String?
+  minStockLevel Decimal           @default(0) @db.Decimal(12, 3)
+  costPrice     Decimal           @default(0) @db.Decimal(12, 2)
+  isActive      Boolean           @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  stocks       InventoryStock[]
+  transactions InventoryTransaction[]
+  poItems      PurchaseOrderItem[]
+  grnItems     GoodsReceiptItem[]
+  returnItems  PurchaseReturnItem[]
+
+  @@index([category])
+  @@index([isActive])
+  @@unique([firmId, sku])
+  @@index([firmId])
+  @@map("inventory_items")
+}
+
+model InventoryStock {
+  id       String        @id @default(cuid())
+  itemId   String
+  item     InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  branchId String
+  branch   Branch        @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  quantity Decimal       @default(0) @db.Decimal(12, 3)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([itemId, branchId])
+  @@index([branchId])
+  @@map("inventory_stocks")
+}
+
+model InventoryTransaction {
+  id           String           @id @default(cuid())
+  itemId       String
+  item         InventoryItem    @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  branchId     String
+  branch       Branch           @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  type         InventoryTxnType
+  quantity     Decimal          @db.Decimal(12, 3)
+  balanceAfter Decimal          @default(0) @db.Decimal(12, 3)
+  unitCost     Decimal?         @db.Decimal(12, 2)
+
+  counterpartBranchId String?
+  reference           String?
+  notes               String?
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([itemId, createdAt])
+  @@index([branchId, createdAt])
+  @@index([type])
+  @@map("inventory_transactions")
+}
+
+// ============================================================================
+// PURCHASES & SUPPLIERS
+// ============================================================================
+
+model Supplier {
+  firmId String
+  firm   Firm   @relation(fields: [firmId], references: [id], onDelete: Restrict)
+  id            String  @id @default(cuid())
+  code          String
+  name          String
+  contactPerson String?
+  phone         String?
+  email         String?
+  addressLine   String?
+  gstNumber     String?
+  paymentTerms  String?
+  creditDays    Int     @default(0)
+  isActive      Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  purchaseOrders   PurchaseOrder[]
+  purchaseInvoices PurchaseInvoice[]
+  payments         SupplierPayment[]
+  returns          PurchaseReturn[]
+
+  @@index([isActive])
+  @@unique([firmId, code])
+  @@index([firmId])
+  @@map("suppliers")
+}
+
+model PurchaseOrder {
+  firmId String
+  firm   Firm   @relation(fields: [firmId], references: [id], onDelete: Restrict)
+  id         String              @id @default(cuid())
+  poNumber   String              @unique
+  supplierId String
+  supplier   Supplier            @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  branchId   String
+  branch     Branch              @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  status     PurchaseOrderStatus @default(DRAFT)
+
+  orderDate    DateTime  @default(now())
+  expectedDate DateTime?
+
+  subtotal  Decimal @default(0) @db.Decimal(12, 2)
+  taxAmount Decimal @default(0) @db.Decimal(12, 2)
+  total     Decimal @default(0) @db.Decimal(12, 2)
+  notes     String?
+
+  createdById String?
+  createdBy   User?   @relation("PurchaseOrderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items    PurchaseOrderItem[]
+  receipts GoodsReceipt[]
+  invoices PurchaseInvoice[]
+  returns  PurchaseReturn[]
+
+  @@index([supplierId])
+  @@index([branchId, status])
+  @@index([firmId])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id               String        @id @default(cuid())
+  poId             String
+  po               PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+  itemId           String
+  item             InventoryItem @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  quantity         Decimal       @db.Decimal(12, 3)
+  receivedQuantity Decimal       @default(0) @db.Decimal(12, 3)
+  unitPrice        Decimal       @db.Decimal(12, 2)
+  taxRate          Decimal       @default(0) @db.Decimal(5, 2)
+  lineTotal        Decimal       @db.Decimal(12, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([poId])
+  @@map("purchase_order_items")
+}
+
+model GoodsReceipt {
+  id           String        @id @default(cuid())
+  grnNumber    String        @unique
+  poId         String
+  po           PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+  branchId     String
+  branch       Branch        @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  receivedAt   DateTime      @default(now())
+  receivedById String?
+  receivedBy   User?         @relation("GoodsReceivedBy", fields: [receivedById], references: [id], onDelete: SetNull)
+  notes        String?
+
+  createdAt DateTime @default(now())
+
+  items GoodsReceiptItem[]
+
+  @@index([poId])
+  @@map("goods_receipts")
+}
+
+model GoodsReceiptItem {
+  id        String        @id @default(cuid())
+  grnId     String
+  grn       GoodsReceipt  @relation(fields: [grnId], references: [id], onDelete: Cascade)
+  itemId    String
+  item      InventoryItem @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  quantity  Decimal       @db.Decimal(12, 3)
+  unitPrice Decimal       @default(0) @db.Decimal(12, 2)
+
+  createdAt DateTime @default(now())
+
+  @@index([grnId])
+  @@map("goods_receipt_items")
+}
+
+model PurchaseInvoice {
+  id            String                @id @default(cuid())
+  invoiceNumber String
+  supplierId    String
+  supplier      Supplier              @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  poId          String?
+  po            PurchaseOrder?        @relation(fields: [poId], references: [id], onDelete: SetNull)
+  status        PurchaseInvoiceStatus @default(UNPAID)
+
+  invoiceDate DateTime  @default(now())
+  dueDate     DateTime?
+  subtotal    Decimal   @default(0) @db.Decimal(12, 2)
+  taxAmount   Decimal   @default(0) @db.Decimal(12, 2)
+  total       Decimal   @default(0) @db.Decimal(12, 2)
+  amountPaid  Decimal   @default(0) @db.Decimal(12, 2)
+  notes       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  payments SupplierPayment[]
+
+  @@unique([supplierId, invoiceNumber])
+  @@index([status])
+  @@map("purchase_invoices")
+}
+
+model SupplierPayment {
+  id            String           @id @default(cuid())
+  paymentNumber String           @unique
+  supplierId    String
+  supplier      Supplier         @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  invoiceId     String?
+  invoice       PurchaseInvoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  amount        Decimal          @db.Decimal(12, 2)
+  method        PaymentMethod    @default(BANK_TRANSFER)
+  reference     String?
+  notes         String?
+  paidAt        DateTime         @default(now())
+  paidById      String?
+  paidBy        User?            @relation("SupplierPaymentBy", fields: [paidById], references: [id], onDelete: SetNull)
+
+  bankAccountId String?
+  bankAccount   BankAccount?     @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([supplierId])
+  @@map("supplier_payments")
+}
+
+model PurchaseReturn {
+  id           String         @id @default(cuid())
+  returnNumber String         @unique
+  supplierId   String
+  supplier     Supplier       @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  poId         String?
+  po           PurchaseOrder? @relation(fields: [poId], references: [id], onDelete: SetNull)
+  branchId     String
+  branch       Branch         @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  reason       String
+  total        Decimal        @default(0) @db.Decimal(12, 2)
+  returnedAt   DateTime       @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items PurchaseReturnItem[]
+
+  @@index([supplierId])
+  @@map("purchase_returns")
+}
+
+model PurchaseReturnItem {
+  id        String         @id @default(cuid())
+  returnId  String
+  return    PurchaseReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  itemId    String
+  item      InventoryItem  @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  quantity  Decimal        @db.Decimal(12, 3)
+  unitPrice Decimal        @default(0) @db.Decimal(12, 2)
+
+  createdAt DateTime @default(now())
+
+  @@index([returnId])
+  @@map("purchase_return_items")
+}
+
+// ============================================================================
+// B2B / CORPORATE
+// ============================================================================
+
+model B2BAccount {
+  firmId String
+  firm   Firm   @relation(fields: [firmId], references: [id], onDelete: Restrict)
+  id                 String         @id @default(cuid())
+  code               String         @unique
+  businessName       String
+  type               B2BAccountType @default(CORPORATE)
+  contactPerson      String?
+  phone              String
+  email              String?
+  billingAddress     String?
+  gstNumber          String?
+  creditLimit        Decimal        @default(0) @db.Decimal(12, 2)
+  creditDays         Int            @default(30)
+  paymentTerms       String?
+  outstandingBalance Decimal        @default(0) @db.Decimal(12, 2)
+  isActive           Boolean        @default(true)
+
+  branchId String?
+  branch   Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  contracts  B2BContract[]
+  schedules  B2BSchedule[]
+  statements B2BStatement[]
+  orders     Order[]
+  invoices   Invoice[]
+
+  @@index([type])
+  @@index([isActive])
+  @@index([firmId])
+  @@map("b2b_accounts")
+}
+
+model B2BContract {
+  id                  String         @id @default(cuid())
+  contractNumber      String         @unique
+  accountId           String
+  account             B2BAccount     @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  status              ContractStatus @default(ACTIVE)
+  billingCycle        BillingCycle   @default(MONTHLY)
+  startDate           DateTime
+  endDate             DateTime?
+  minimumMonthlyValue Decimal        @default(0) @db.Decimal(12, 2)
+  terms               String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  rateCards B2BRateCard[]
+
+  @@index([accountId, status])
+  @@map("b2b_contracts")
+}
+
+model B2BRateCard {
+  id            String       @id @default(cuid())
+  contractId    String
+  contract      B2BContract  @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  serviceId     String
+  service       Service      @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  garmentTypeId String?
+  garmentType   GarmentType? @relation(fields: [garmentTypeId], references: [id], onDelete: SetNull)
+  pricingMode   PricingMode  @default(PER_PIECE)
+  rate          Decimal      @db.Decimal(12, 2)
+  effectiveFrom DateTime     @default(now())
+  effectiveTo   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([contractId, serviceId, garmentTypeId])
+  @@index([contractId])
+  @@map("b2b_rate_cards")
+}
+
+model B2BSchedule {
+  id        String       @id @default(cuid())
+  accountId String
+  account   B2BAccount   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  type      ScheduleType
+  dayOfWeek Int
+  timeSlot  String
+  isActive  Boolean      @default(true)
+  notes     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([accountId])
+  @@map("b2b_schedules")
+}
+
+model B2BStatement {
+  id              String        @id @default(cuid())
+  statementNumber String        @unique
+  accountId       String
+  account         B2BAccount    @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  periodStart     DateTime
+  periodEnd       DateTime
+  orderCount      Int           @default(0)
+  totalAmount     Decimal       @default(0) @db.Decimal(12, 2)
+  paidAmount      Decimal       @default(0) @db.Decimal(12, 2)
+  dueAmount       Decimal       @default(0) @db.Decimal(12, 2)
+  status          InvoiceStatus @default(ISSUED)
+  generatedAt     DateTime      @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([accountId, periodStart, periodEnd])
+  @@index([accountId])
+  @@map("b2b_statements")
+}
+
+// ============================================================================
+// COMPLAINTS & DAMAGE
+// ============================================================================
+
+model Complaint {
+  firmId String
+  firm   Firm   @relation(fields: [firmId], references: [id], onDelete: Restrict)
+  id              String            @id @default(cuid())
+  complaintNumber String            @unique
+  type            ComplaintType
+  status          ComplaintStatus   @default(OPEN)
+  priority        ComplaintPriority @default(MEDIUM)
+
+  branchId String
+  branch   Branch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  orderId   String?
+  order     Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  garmentId String?
+  garment   Garment? @relation(fields: [garmentId], references: [id], onDelete: SetNull)
+
+  raisedByName  String
+  raisedByPhone String?
+  description   String
+
+  assignedToId String?
+  assignedTo   User?   @relation("ComplaintAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  investigationNotes String?
+  resolution         ComplaintResolution?
+  resolutionNotes    String?
+  compensationAmount Decimal?             @db.Decimal(12, 2)
+  resolvedAt         DateTime?
+  resolvedById       String?
+  resolvedBy         User?                @relation("ComplaintResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  createdById String?
+  createdBy   User?   @relation("ComplaintCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  attachments ComplaintAttachment[]
+
+  @@index([branchId, status])
+  @@index([orderId])
+  @@index([garmentId])
+  @@index([createdAt])
+  @@index([firmId])
+  @@map("complaints")
+}
+
+model ComplaintAttachment {
+  id           String    @id @default(cuid())
+  complaintId  String
+  complaint    Complaint @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+  url          String
+  storageKey   String
+  mimeType     String?
+  sizeBytes    Int?
+  caption      String?
+  uploadedById String?
+  uploadedBy   User?     @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  createdAt    DateTime  @default(now())
+
+  @@index([complaintId])
+  @@map("complaint_attachments")
+}
+
+// ============================================================================
+// NOTIFICATIONS
+// ============================================================================
+
+model NotificationTemplate {
+  id       String              @id @default(cuid())
+  code     String              @unique
+  name     String
+  channel  NotificationChannel
+  event    NotificationEvent
+  subject  String?
+  body     String
+  language String              @default("en")
+  isActive Boolean             @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  notifications Notification[]
+
+  @@index([event, channel])
+  @@map("notification_templates")
+}
+
+model Notification {
+  id      String              @id @default(cuid())
+  event   NotificationEvent
+  channel NotificationChannel
+  status  NotificationStatus  @default(PENDING)
+
+  templateId String?
+  template   NotificationTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  orderId String?
+  order   Order?  @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  branchId String?
+  branch   Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  recipientName  String?
+  recipientPhone String?
+  recipientEmail String?
+  subject        String?
+  body           String
+  payload        Json?
+
+  providerMessageId String?
+  errorMessage      String?
+  retryCount        Int       @default(0)
+  sentAt            DateTime?
+  deliveredAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  logs NotificationLog[]
+
+  @@index([status])
+  @@index([orderId])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+model NotificationLog {
+  id             String             @id @default(cuid())
+  notificationId String
+  notification   Notification       @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  status         NotificationStatus
+  detail         String?
+  createdAt      DateTime           @default(now())
+
+  @@index([notificationId, createdAt])
+  @@map("notification_logs")
+}
+
+// ============================================================================
+// EXPENSES
+// ============================================================================
+
+model Expense {
+  firmId String
+  firm   Firm   @relation(fields: [firmId], references: [id], onDelete: Restrict)
+  id            String          @id @default(cuid())
+  expenseNumber String          @unique
+  branchId      String
+  branch        Branch          @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  category      ExpenseCategory @default(MISCELLANEOUS)
+  status        ExpenseStatus   @default(PENDING)
+  amount        Decimal         @db.Decimal(12, 2)
+  description   String
+  paidTo        String?
+  paymentMethod PaymentMethod   @default(CASH)
+  reference     String?
+  bankAccountId String?
+  bankAccount   BankAccount?    @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
+  attachmentUrl String?
+  expenseDate   DateTime        @default(now())
+
+  createdById  String?
+  createdBy    User?     @relation("ExpenseCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  approvedById String?
+  approvedBy   User?     @relation("ExpenseApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  approvedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([branchId, expenseDate])
+  @@index([category])
+  @@index([firmId])
+  @@map("expenses")
+}
+
+/// Counter-facing customer record. Orders keep their own copy of the contact
+/// details so historical invoices never change; this row is the searchable
+/// directory and the place lifetime figures are rolled up.
+model Customer {
+  firmId String
+  firm   Firm   @relation(fields: [firmId], references: [id], onDelete: Restrict)
+  id       String @id @default(cuid())
+  code     String @unique
+  branchId String
+  branch   Branch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  name  String
+  phone String
+  email String?
+
+  addressLine String?
+  city        String?
+  pincode     String?
+  landmark    String?
+
+  notes    String?
+  isActive Boolean @default(true)
+
+  // Rolled up from orders and payments whenever either changes.
+  orderCount        Int       @default(0)
+  totalSpent        Decimal   @default(0) @db.Decimal(14, 2)
+  outstandingAmount Decimal   @default(0) @db.Decimal(14, 2)
+  lastOrderAt       DateTime?
+
+  createdById String?
+  createdBy   User?   @relation("CustomerCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orders       Order[]
+  invoices     Invoice[]
+  deliveryChallans DeliveryChallan[]
+  whatsAppLogs WhatsAppLog[]
+
+  @@unique([branchId, phone])
+  @@index([branchId, name])
+  @@index([phone])
+  @@index([firmId])
+  @@map("customers")
+}
+
+/// Append-only log of every tag scan, so the counter can see what was scanned,
+/// by whom, and what happened next.
+model ScanEvent {
+  firmId String
+  firm   Firm   @relation(fields: [firmId], references: [id], onDelete: Restrict)
+  id       String @id @default(cuid())
+  branchId String
+  branch   Branch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  rawCode     String
+  resolvedAs  ScanTargetKind @default(UNKNOWN)
+  orderId     String?
+  order       Order?         @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  garmentCode String?
+
+  succeeded Boolean    @default(true)
+  message   String?
+  action    String?
+  source    ScanSource @default(KEYBOARD)
+
+  scannedById String?
+  scannedBy   User?   @relation("ScanEventScannedBy", fields: [scannedById], references: [id], onDelete: SetNull)
+
+  scannedAt DateTime @default(now())
+
+  @@index([branchId, scannedAt])
+  @@index([orderId])
+  @@index([firmId])
+  @@map("scan_events")
+}
+
+enum ScanTargetKind {
+  ORDER
+  GARMENT
+  SLOT
+  UNKNOWN
+}
+
+enum ScanSource {
+  KEYBOARD
+  CAMERA
+  HARDWARE
+}
+
+/// The buckets the shop floor actually counts in. One garment belongs to
+/// exactly one, and it decides the prefix on the garment's own id.
+enum TrackingCategory {
+  TROUSERS
+  SHIRTS
+  TSHIRTS
+  JACKETS
+  DRESSES
+  SAREES
+  BEDSHEETS
+  OTHER
+}
+
+/// One row per physical scan of one garment at one station. This is the
+/// evidence the mismatch centre works from: what was scanned, against which
+/// order the operator thought they were working, and what the system made of
+/// it. Append-only.
+model GarmentScan {
+  id        String  @id @default(cuid())
+  garmentId String
+  garment   Garment @relation(fields: [garmentId], references: [id], onDelete: Cascade)
+
+  /// The order the garment actually belongs to.
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  /// The order the operator had open when they scanned, when there was one.
+  /// A difference between this and orderId is a wrong-order scan.
+  contextOrderId String?
+  contextOrder   Order?  @relation("GarmentScanContext", fields: [contextOrderId], references: [id], onDelete: SetNull)
+
+  branchId String
+  branch   Branch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  trackingCategory TrackingCategory
+  stage            ProcessingStage
+  outcome          GarmentScanOutcome @default(MATCH)
+
+  /// Where the garment was physically read, when the station recorded it.
+  location String?
+  note     String?
+
+  scannedById String?
+  scannedBy   User?   @relation("GarmentScanBy", fields: [scannedById], references: [id], onDelete: SetNull)
+
+  scannedAt DateTime @default(now())
+
+  @@index([garmentId, scannedAt])
+  @@index([orderId])
+  @@index([branchId, scannedAt])
+  @@index([branchId, trackingCategory, stage])
+  @@index([outcome])
+  @@map("garment_scans")
+}
+
+enum GarmentScanOutcome {
+  MATCH
+  WRONG_ORDER
+  WRONG_CATEGORY
+  DUPLICATE
+}
+
+/// A problem a person raised or the system escalated, and whether it is still
+/// open. Most mismatches are derived live from scans; this table is for the
+/// ones that need to survive a refresh — a garment reported missing, a
+/// wrong-order scan someone has acknowledged.
+model GarmentException {
+  id        String  @id @default(cuid())
+  garmentId String
+  garment   Garment @relation(fields: [garmentId], references: [id], onDelete: Cascade)
+
+  branchId String
+  branch   Branch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  type   GarmentExceptionType
+  status GarmentExceptionStatus @default(OPEN)
+
+  detail     String?
+  resolution String?
+
+  reportedById String?
+  reportedBy   User?    @relation("GarmentExceptionReporter", fields: [reportedById], references: [id], onDelete: SetNull)
+  reportedAt   DateTime @default(now())
+
+  resolvedById String?
+  resolvedBy   User?     @relation("GarmentExceptionResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+  resolvedAt   DateTime?
+
+  @@index([branchId, status])
+  @@index([garmentId, status])
+  @@index([type, status])
+  @@map("garment_exceptions")
+}
+
+enum GarmentExceptionType {
+  MISSING
+  WRONG_ORDER
+  WRONG_GARMENT
+  DUPLICATE_SCAN
+  NOT_SCANNED
+}
+
+enum GarmentExceptionStatus {
+  OPEN
+  RESOLVED
+  DISMISSED
+}
+
+// ============================================================================
+// REAL ERP FINANCIAL ENGINE: BANK ACCOUNTS, CASH & CENTRAL LEDGER
+// ============================================================================
+
+model BankAccount {
+  firmId String
+  firm   Firm   @relation(fields: [firmId], references: [id], onDelete: Restrict)
+  id             String   @id @default(cuid())
+  branchId       String
+  branch         Branch   @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  accountName    String
+  bankName       String
+  accountNumber  String   // Masked in UI e.g. XXXX-XXXX-4321
+  ifscCode       String?
+  openingBalance Decimal  @default(0) @db.Decimal(14, 2)
+  currentBalance Decimal  @default(0) @db.Decimal(14, 2)
+  status         String   @default("ACTIVE") // ACTIVE | INACTIVE | CLOSED
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  transactions     BankTransaction[]
+  expenses         Expense[]
+  payments         Payment[]
+  supplierPayments SupplierPayment[]
+  reconciliations  Reconciliation[]
+
+  @@index([branchId])
+  @@index([firmId])
+  @@map("bank_accounts")
+}
+
+model CashAccount {
+  id             String   @id @default(cuid())
+  branchId       String   @unique
+  branch         Branch   @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  openingBalance Decimal  @default(0) @db.Decimal(14, 2)
+  currentBalance Decimal  @default(0) @db.Decimal(14, 2)
+  updatedAt      DateTime @updatedAt
+
+  @@map("cash_accounts")
+}
+
+model FinancialLedger {
+  firmId String
+  firm   Firm   @relation(fields: [firmId], references: [id], onDelete: Restrict)
+  id              String                   @id @default(cuid())
+  branchId        String
+  branch          Branch                   @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  entryDate       DateTime                 @default(now())
+  reference       String                   // e.g. ORD-1024, PAY-1002, EXP-101, PUR-105, REC-101, TRF-102, ADJ-101
+  description     String
+  accountCategory FinancialAccountCategory @default(SALES)
+  debit           Decimal                  @default(0) @db.Decimal(14, 2)
+  credit          Decimal                  @default(0) @db.Decimal(14, 2)
+  balanceAfter    Decimal                  @default(0) @db.Decimal(14, 2)
+  paymentMethod   PaymentMethod            @default(CASH)
+
+  bankAccountId   String?
+  customerId      String?
+  supplierId      String?
+  orderId         String?
+  expenseId       String?
+  purchaseOrderId String?
+
+  isVoided        Boolean                  @default(false)
+  voidReason      String?
+  voidedAt        DateTime?
+  voidedById      String?
+
+  createdById     String?
+  createdBy       User?                    @relation("LedgerCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt       DateTime                 @default(now())
+
+  @@index([branchId, entryDate])
+  @@index([reference])
+  @@index([accountCategory])
+  @@index([customerId])
+  @@index([supplierId])
+  @@index([firmId])
+  @@map("financial_ledgers")
+}
+
+enum FinancialAccountCategory {
+  SALES
+  OTHER_INCOME
+  EXPENSE
+  CASH
+  BANK
+  RECEIVABLES
+  PAYABLES
+  PURCHASE
+  TRANSFER
+  ADJUSTMENT
+  OPENING_BALANCE
+}
+
+model BankTransaction {
+  id             String          @id @default(cuid())
+  bankAccountId  String
+  bankAccount    BankAccount     @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+  branchId       String
+  branch         Branch          @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  txnDate        DateTime        @default(now())
+  type           BankTxnType     @default(DEPOSIT)
+  amount         Decimal         @db.Decimal(14, 2)
+  balanceAfter   Decimal         @db.Decimal(14, 2)
+  reference      String?
+  description    String
+  transferPairId String?
+
+  createdById    String?
+  createdBy      User?           @relation("BankTxnCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt      DateTime        @default(now())
+
+  @@index([bankAccountId, txnDate])
+  @@index([branchId])
+  @@map("bank_transactions")
+}
+
+enum BankTxnType {
+  DEPOSIT
+  WITHDRAWAL
+  TRANSFER_IN
+  TRANSFER_OUT
+}
+
+model CashTransaction {
+  firmId String
+  firm   Firm   @relation(fields: [firmId], references: [id], onDelete: Restrict)
+  id             String          @id @default(cuid())
+  branchId       String
+  branch         Branch          @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  txnDate        DateTime        @default(now())
+  type           CashTxnType     @default(CASH_IN)
+  amount         Decimal         @db.Decimal(14, 2)
+  balanceAfter   Decimal         @db.Decimal(14, 2)
+  reference      String?
+  reason         String
+  transferPairId String?
+
+  createdById    String?
+  createdBy      User?           @relation("CashTxnCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt      DateTime        @default(now())
+
+  @@index([branchId, txnDate])
+  @@index([firmId])
+  @@map("cash_transactions")
+}
+
+enum CashTxnType {
+  CASH_IN
+  CASH_OUT
+  DEPOSIT_TO_BANK
+  WITHDRAWAL_FROM_BANK
+  ADJUSTMENT
+  OPENING_BALANCE
+}
+
+model Reconciliation {
+  id              String             @id @default(cuid())
+  branchId        String
+  branch          Branch             @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  type            ReconciliationType @default(CASH)
+  bankAccountId   String?
+  bankAccount     BankAccount?       @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
+  reconciledDate  DateTime           @default(now())
+  expectedBalance Decimal            @db.Decimal(14, 2)
+  actualBalance   Decimal            @db.Decimal(14, 2)
+  difference      Decimal            @db.Decimal(14, 2)
+  adjustmentNotes String
+
+  createdById     String?
+  createdBy       User?              @relation("ReconciliationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt       DateTime           @default(now())
+
+  @@index([branchId, reconciledDate])
+  @@map("reconciliations")
+}
+
+enum ReconciliationType {
+  CASH
+  BANK
+}
+
+// ============================================================================
+// WHATSAPP OPENWA MESSAGING INTEGRATION
+// ============================================================================
+
+enum WhatsAppMessageStatus {
+  QUEUED
+  SENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+enum WhatsAppMessageType {
+  ORDER_CREATED
+  ORDER_READY
+  PAYMENT_RECEIVED
+  PAYMENT_PENDING
+  ORDER_DELIVERED
+  INVOICE
+  PAYMENT_RECEIPT
+  DELIVERY_RECEIPT
+  DELIVERY_CHALLAN
+  CUSTOM
+}
+
+model WhatsAppLog {
+  firmId        String
+  firm          Firm                  @relation(fields: [firmId], references: [id], onDelete: Restrict)
+  id            String                @id @default(cuid())
+  sessionId     String?
+  documentType  String?
+  documentId    String?
+  customerId    String?
+  customer      Customer?             @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  orderId       String?
+  order         Order?                @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  phone         String
+  messageType   WhatsAppMessageType   @default(CUSTOM)
+  messageText   String                @db.Text
+  documentName  String?
+  documentUrl   String?
+  status        WhatsAppMessageStatus @default(QUEUED)
+  externalId    String?
+  errorMessage  String?
+  sentByUserId  String?
+  sentByUser    User?                 @relation("WhatsAppSentBy", fields: [sentByUserId], references: [id], onDelete: SetNull)
+  sentAt        DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+
+  @@index([firmId, sentAt])
+  @@index([customerId])
+  @@index([orderId])
+  @@index([status])
+  @@index([externalId])
+  @@map("whatsapp_logs")
+}
+
+model WhatsAppTemplate {
+  firmId String
+  firm   Firm   @relation(fields: [firmId], references: [id], onDelete: Restrict)
+  id        String              @id @default(cuid())
+  code      WhatsAppMessageType
+  name      String
+  body      String              @db.Text
+  isActive  Boolean             @default(true)
+  updatedAt DateTime            @updatedAt
+  @@unique([firmId, code])
+  @@index([firmId])
+
+  @@map("whatsapp_templates")
+}
+
+model WhatsAppSession {
+  firmId String
+  firm   Firm   @relation(fields: [firmId], references: [id], onDelete: Restrict)
+  id              String    @id @default(cuid())
+  provider        String    @default("openwa")
+  // Gateway session identifier. Globally unique and derived from the firm
+  // (wa_<firmId>) so no two firms can ever address the same gateway session.
+  sessionName     String
+  displayName     String?
+  isConnected     Boolean   @default(false)
+  connectedNumber String?
+  qrCode          String?   @db.Text
+  apiStatus       String    @default("NOT_CONFIGURED")
+  lastConnectedAt DateTime?
+  lastCheckedAt   DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([firmId, provider])
+  @@unique([sessionName])
+  @@index([firmId])
+  @@map("whatsapp_sessions")
+}
+
