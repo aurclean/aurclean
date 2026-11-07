@@ -27,10 +27,13 @@ export default auth(function proxy(request) {
     }
 
     if (isLoggedIn && pathname === "/login") {
-      return NextResponse.redirect(new URL("/dashboard", request.nextUrl.origin));
+      return NextResponse.redirect(new URL("/", request.nextUrl.origin));
     }
 
-    return NextResponse.next();
+    // Expose the path to server layouts (they have no other way to read it).
+    const headers = new Headers(request.headers);
+    headers.set("x-pathname", pathname);
+    return NextResponse.next({ request: { headers } });
   } catch (error) {
     console.error("[Proxy Execution Error]:", error);
     return NextResponse.next();

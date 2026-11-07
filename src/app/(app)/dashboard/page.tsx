@@ -47,7 +47,7 @@ import {
 import { getFinancialOverview } from "@/lib/services/accounting";
 import { detectMismatches } from "@/lib/services/garment-tracking";
 import { PERMISSIONS } from "@/lib/rbac";
-import { hasPermission, requireFirmId, requirePermission } from "@/lib/session";
+import { hasPermission, requirePermissionInFirm } from "@/lib/session";
 import { ORDER_STATUS_LABELS } from "@/lib/workflow";
 import {
   branchOptions,
@@ -66,10 +66,10 @@ export default async function DashboardPage({
   searchParams: Promise<SearchParams>;
 }) {
   const params = await searchParams;
-  const user = await requirePermission(PERMISSIONS.DASHBOARD_VIEW);
+  const user = await requirePermissionInFirm(PERMISSIONS.DASHBOARD_VIEW);
 
   const branchId = scopedBranchId(user, params);
-  const firmId = requireFirmId(user);
+  const firmId = user.activeFirmId;
   const range = dateRangeFrom(params) ?? {
     from: new Date(Date.now() - 29 * 24 * 60 * 60 * 1000),
     to: new Date(),

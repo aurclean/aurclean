@@ -1,8 +1,13 @@
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 
 import { AppShell } from "@/components/layout/app-shell";
 import { getAlerts } from "@/lib/services/alerts";
 import { requireUser } from "@/lib/session";
+
+/** Pages a PLATFORM_ADMIN may open before entering a firm. */
+const PLATFORM_ONLY_PATHS = ["/firms", "/profile"];
 
 const EMPTY_ALERTS = { alerts: [], total: 0 };
 
@@ -14,6 +19,12 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   // once one is active; otherwise every page under this layout (including
   // /firms) would throw before it could even render.
   const platformOnly = !user.activeFirmId;
+  if (platformOnly) {
+    const pathname = (await headers()).get("x-pathname") ?? "";
+    if (!PLATFORM_ONLY_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
+      redirect("/firms");
+    }
+  }
   const alerts = user.activeFirmId ? await getAlerts(user) : EMPTY_ALERTS;
 
   return (
