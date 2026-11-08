@@ -84,6 +84,36 @@ export function DocumentSettingsView({ initialSettings }: Props) {
             </div>
           </div>
 
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <Label className="text-xs font-semibold">Logo (image path or https URL)</Label>
+              <Input
+                value={form.logoUrl ?? ""}
+                onChange={(e) => setForm({ ...form, logoUrl: e.target.value })}
+                placeholder="/logo.png"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label className="text-xs font-semibold">Signature / Stamp (optional)</Label>
+              <Input
+                value={form.signatureUrl ?? ""}
+                onChange={(e) => setForm({ ...form, signatureUrl: e.target.value })}
+                placeholder="/api/files/signatures/firm.png"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label className="text-xs font-semibold">Document Accent Colour</Label>
+              <Input
+                value={form.accentColor ?? ""}
+                onChange={(e) => setForm({ ...form, accentColor: e.target.value })}
+                placeholder="#068708"
+                className="mt-1"
+              />
+            </div>
+          </div>
+
           <div>
             <Label className="text-xs font-semibold">Official Business Address</Label>
             <Input

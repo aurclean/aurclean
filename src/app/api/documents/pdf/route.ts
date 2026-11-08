@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { assertFirmAccess, requirePermission } from "@/lib/session";
+import { assertFirmAccess, AuthenticationError, AuthorizationError, requireFirmId, requirePermission } from "@/lib/session";
 import { PERMISSIONS } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import {
@@ -10,6 +10,7 @@ import {
   generateOrderSummaryPDF,
   generateStatementPDF,
   generateExpenseReceiptPDF,
+  DocumentAccessError,
 } from "@/lib/pdf/pdf-templates";
 
 /**
@@ -59,32 +60,35 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Document not found" }, { status: 404 });
     }
     assertFirmAccess(user, record.firmId);
+    // The firm comes from the authenticated session, never the query string;
+    // each generator re-verifies it against the record and its joined rows.
+    const scope = { firmId: requireFirmId(user) };
 
     let pdfResult: { buffer: Buffer; fileName: string };
 
     switch (normalizedType) {
       case "invoice":
-        pdfResult = await generateInvoicePDF(id);
+        pdfResult = await generateInvoicePDF(id, scope);
         break;
       case "challan":
       case "delivery_challan":
-        pdfResult = await generateChallanPDF(id);
+        pdfResult = await generateChallanPDF(id, scope);
         break;
       case "payment_receipt":
-        pdfResult = await generatePaymentReceiptPDF(id);
+        pdfResult = await generatePaymentReceiptPDF(id, scope);
         break;
       case "delivery_receipt":
-        pdfResult = await generateDeliveryReceiptPDF(id);
+        pdfResult = await generateDeliveryReceiptPDF(id, scope);
         break;
       case "order_summary":
-        pdfResult = await generateOrderSummaryPDF(id);
+        pdfResult = await generateOrderSummaryPDF(id, scope);
         break;
       case "statement":
-        pdfResult = await generateStatementPDF(id);
+        pdfResult = await generateStatementPDF(id, scope);
         break;
       case "expense":
       case "expense_receipt":
-        pdfResult = await generateExpenseReceiptPDF(id);
+        pdfResult = await generateExpenseReceiptPDF(id, scope);
         break;
       default:
         return NextResponse.json({ error: `Unsupported document type: ${type}` }, { status: 400 });
@@ -102,6 +106,15 @@ export async function GET(req: Request) {
       },
     });
   } catch (error: any) {
+    if (error instanceof AuthenticationError) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (error instanceof AuthorizationError) {
+      return NextResponse.json({ error: "Document not found" }, { status: 404 });
+    }
+    if (error instanceof DocumentAccessError) {
+      return NextResponse.json({ error: "Document not found" }, { status: 404 });
+    }
     console.error("PDF generation route error:", error);
     return NextResponse.json({ error: error?.message || "Failed to generate PDF document" }, { status: 500 });
   }

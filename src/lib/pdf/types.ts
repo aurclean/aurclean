@@ -24,6 +24,11 @@ export interface CompanyProfile {
   website: string;
   gstin: string;
   logoUrl?: string;
+  signatureUrl?: string;
+  legalName?: string;
+  pan?: string;
+  accentColor?: string;
+  currency?: string;
   footerText?: string;
   termsConditions?: string;
   invoicePrefix?: string;

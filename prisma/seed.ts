@@ -46,6 +46,7 @@ async function seedFirm() {
       id: FIRM_ID,
       code: "FALNIR",
       name: "Aurclean - Falnir",
+      logoUrl: "/logo.png",
       status: "ACTIVE",
     },
     update: {},

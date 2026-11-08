@@ -2,7 +2,7 @@
   "name": "aura-laundry-erp",
   "version": "1.0.0",
   "private": true,
-  "description": "Aura Laundry ERP — production laundry operating system built around Order → Garment → Processing → Location → Delivery → Payment",
+  "description": "Aura Laundry ERP \u2014 production laundry operating system built around Order \u2192 Garment \u2192 Processing \u2192 Location \u2192 Delivery \u2192 Payment",
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",
@@ -17,7 +17,8 @@
     "db:sync-permissions": "tsx prisma/sync-permissions.ts",
     "db:studio": "prisma studio",
     "whatsapp:server": "node scripts/openwa-server.mjs",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "test:documents": "node --conditions react-server --import tsx --test tests/documents.test.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

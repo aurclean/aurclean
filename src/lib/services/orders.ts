@@ -225,7 +225,7 @@ export async function createOrder(
       });
 
       const gstSplit = splitGst(totals.gstAmount, false);
-      const invoiceNumber = await nextInvoiceNumber(tx);
+      const invoiceNumber = await nextInvoiceNumber(tx, actor.firmId);
 
       await tx.invoice.create({
         data: {
