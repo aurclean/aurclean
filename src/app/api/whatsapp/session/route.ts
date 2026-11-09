@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(req: Request) {
   try {
-    const user = await requirePermission(PERMISSIONS.SETTINGS_MANAGE);
+    const user = await requirePermission(PERMISSIONS.WHATSAPP_MANAGE);
     const { searchParams } = new URL(req.url);
     const forceRefresh = searchParams.get("refresh") === "true";
 
@@ -34,7 +34,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const user = await requirePermission(PERMISSIONS.SETTINGS_MANAGE);
+    const user = await requirePermission(PERMISSIONS.WHATSAPP_MANAGE);
     const firmId = requireFirmId(user);
     const body = await req.json().catch(() => ({}));
     const action = body?.action || "connect";
@@ -55,7 +55,7 @@ export async function POST(req: Request) {
         firmId,
         phone,
         messageType: "CUSTOM",
-        messageText: "Test WhatsApp message from AURCLEAN Laundry ERP. Gateway connection verified successfully!",
+        messageText: "Test message: this WhatsApp number is connected for your firm.",
         sentByUserId: user.id,
       });
       return NextResponse.json({ ok: true, data: testRes });

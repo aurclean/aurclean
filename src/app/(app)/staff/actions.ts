@@ -5,9 +5,10 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
-import { PERMISSIONS, ROLE_LABELS, isGlobalRole } from "@/lib/rbac";
+import { PERMISSIONS, ROLE_LABELS, STAFF_ROLES, isGlobalRole } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validations/common";
-import { generateUniqueAccessCode } from "@/lib/access-code";
+import { generateUniqueAccessCode, accessCodeData, issueAccessCode, revokeAccessCode } from "@/lib/access-code";
+import { logLoginEvent } from "@/lib/login-security";
 import {
   assertBranchAccess,
   assertFirmAccess,
@@ -33,12 +34,17 @@ import {
   updateStaffSchema,
 } from "@/lib/validations/staff";
 
-/** Only a super admin may mint another super admin. */
+/**
+ * A Firm Manager creates and manages Field Manager and QC accounts only —
+ * never another manager, never a platform admin, never a customer login.
+ */
 function assertCanAssignRole(actorRole: string, targetRole: string) {
-  const privileged = ["SUPER_ADMIN"];
-  if (privileged.includes(targetRole) && actorRole !== "SUPER_ADMIN") {
+  if (actorRole !== "FIRM_MANAGER" && actorRole !== "PLATFORM_SUPER_ADMIN") {
+    throw new BusinessRuleError("Only a Firm Manager can manage staff accounts");
+  }
+  if (!(STAFF_ROLES as string[]).includes(targetRole)) {
     throw new BusinessRuleError(
-      `Only a super admin can assign the ${ROLE_LABELS[targetRole as keyof typeof ROLE_LABELS]} role`,
+      `${ROLE_LABELS[targetRole as keyof typeof ROLE_LABELS] ?? targetRole} accounts cannot be created or changed here`,
     );
   }
 }
@@ -72,7 +78,7 @@ export async function createStaffAction(
     });
     if (existing) throw new BusinessRuleError("That email address is already registered");
 
-    const accessCode = await generateUniqueAccessCode();
+    const { code: accessCode, hash: accessCodeHash } = await generateUniqueAccessCode();
 
     const created = await prisma.$transaction(async (tx) => {
       const employeeCode = await nextEmployeeCode(tx);
@@ -83,7 +89,8 @@ export async function createStaffAction(
           name: input.name,
           email: input.email,
           phone: input.phone ?? null,
-          accessCode,
+          ...accessCodeData(accessCodeHash),
+          createdById: user.id,
           role: input.role,
           branchId,
           firmId,
@@ -98,7 +105,7 @@ export async function createStaffAction(
               addressLine: input.addressLine ?? null,
             },
           },
-          ...(input.licenseNumber || input.vehicleNumber || input.vehicleType
+          ...(input.role === "FIELD_MANAGER" || input.licenseNumber || input.vehicleNumber || input.vehicleType
             ? {
                 driver: {
                   create: {
@@ -233,12 +240,8 @@ export async function regenerateAccessCodeAction(
     assertFirmAccess(user, staff.firmId);
     assertCanAssignRole(user.role, staff.role);
 
-    const accessCode = await generateUniqueAccessCode();
-
-    await prisma.user.update({
-      where: { id: staff.id },
-      data: { accessCode },
-    });
+    const accessCode = await issueAccessCode(staff.id);
+    await logLoginEvent({ event: "CODE_REGENERATED", firmId: staff.firmId, userId: staff.id, detail: `by ${user.id}` });
 
     // The new code itself is never written to the audit trail.
     await recordAudit({
@@ -252,6 +255,36 @@ export async function regenerateAccessCodeAction(
 
     revalidatePath(`/staff/${staff.id}`);
     return { accessCode };
+  });
+}
+
+/** Revokes a staff member's access code: they cannot sign in until a new one is issued. */
+export async function revokeAccessCodeAction(payload: unknown): Promise<ActionResult<null>> {
+  return runAction(async () => {
+    const user = await authorize(PERMISSIONS.STAFF_MANAGE);
+    const input = regenerateAccessCodeSchema.parse(payload);
+
+    const staff = await prisma.user.findUnique({
+      where: { id: input.userId },
+      select: { id: true, branchId: true, firmId: true, name: true, role: true },
+    });
+    if (!staff) throw new NotFoundError("Staff member not found");
+    assertFirmAccess(user, staff.firmId);
+    assertCanAssignRole(user.role, staff.role);
+
+    await revokeAccessCode(staff.id);
+    await logLoginEvent({ event: "CODE_REVOKED", firmId: staff.firmId, userId: staff.id, detail: `by ${user.id}` });
+    await recordAudit({
+      userId: user.id,
+      branchId: staff.branchId,
+      action: "STAFF_ACCESS_CODE_REVOKED",
+      entity: "User",
+      entityId: staff.id,
+      summary: `Access code revoked for ${staff.name}`,
+    });
+
+    revalidatePath(`/staff/${staff.id}`);
+    return null;
   });
 }
 
@@ -513,8 +546,8 @@ export async function setStaffStatusAction(payload: unknown): Promise<ActionResu
     if (staff.id === actor.id) {
       throw new BusinessRuleError("You cannot change your own account status");
     }
-    if (staff.role === "SUPER_ADMIN" && actor.role !== "SUPER_ADMIN") {
-      throw new BusinessRuleError("Only a super admin can change a super admin");
+    if (!(STAFF_ROLES as string[]).includes(staff.role)) {
+      throw new BusinessRuleError("Only Field Manager and QC accounts can be changed here");
     }
     if (staff.status === status) {
       throw new BusinessRuleError(`${staff.name} is already ${status.toLowerCase()}`);

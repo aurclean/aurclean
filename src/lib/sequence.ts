@@ -107,8 +107,32 @@ export async function nextDocumentNumber(
   return `${prefix}${pad(value, width)}`;
 }
 
-export const nextInvoiceNumber = (db?: Db) =>
-  nextDocumentNumber(SEQUENCE_KEYS.INVOICE, "INV", 6, db);
+/**
+ * The numbering prefix a firm configured in Settings > Documents. Only a
+ * short alphanumeric prefix is honoured so a stored value can never change
+ * the shape of a number (or inject separators); anything else falls back to
+ * the default. The counter stays global, so every number remains unique
+ * across firms and branches.
+ */
+export async function firmDocumentPrefix(
+  firmId: string | undefined,
+  key: "invoice_prefix" | "challan_prefix",
+  fallback: string,
+  db: Db = prisma,
+): Promise<string> {
+  if (!firmId) return fallback;
+  const row = await db.setting.findUnique({ where: { firmId_key: { firmId, key } }, select: { value: true } });
+  const value = row?.value?.trim().toUpperCase();
+  return value && /^[A-Z0-9]{1,8}$/.test(value) ? value : fallback;
+}
+
+export const nextInvoiceNumber = async (db: Db = prisma, firmId?: string) =>
+  nextDocumentNumber(
+    SEQUENCE_KEYS.INVOICE,
+    await firmDocumentPrefix(firmId, "invoice_prefix", "INV", db),
+    6,
+    db,
+  );
 export const nextPaymentNumber = (db?: Db) =>
   nextDocumentNumber(SEQUENCE_KEYS.PAYMENT, "PAY", 6, db);
 export const nextRefundNumber = (db?: Db) =>
@@ -146,10 +170,11 @@ export const nextTransferReference = (db?: Db) =>
 export const nextReconciliationReference = (db?: Db) =>
   nextDocumentNumber("reconciliation", "REC", 6, db);
 
-export const nextChallanNumber = async (db: Db = prisma): Promise<string> => {
+export const nextChallanNumber = async (db: Db = prisma, firmId?: string): Promise<string> => {
   const year = new Date().getFullYear();
+  const prefix = await firmDocumentPrefix(firmId, "challan_prefix", "DC", db);
   const value = await nextSequence(SEQUENCE_KEYS.DELIVERY_CHALLAN, db);
-  return `DC-${year}-${pad(value, 6)}`;
+  return `${prefix}-${year}-${pad(value, 6)}`;
 };
 
 

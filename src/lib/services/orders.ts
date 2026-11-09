@@ -171,6 +171,7 @@ export async function createOrder(
           createdById: actor.userId,
           items: {
             create: priced.map((item) => ({
+              firmId: actor.firmId,
               serviceId: item.serviceId,
               garmentTypeId: item.garmentTypeId,
               quantity: item.quantity,
@@ -225,7 +226,7 @@ export async function createOrder(
       });
 
       const gstSplit = splitGst(totals.gstAmount, false);
-      const invoiceNumber = await nextInvoiceNumber(tx);
+      const invoiceNumber = await nextInvoiceNumber(tx, actor.firmId);
 
       await tx.invoice.create({
         data: {
@@ -294,6 +295,7 @@ export async function createOrder(
       if (input.type === "PICKUP") {
         await tx.pickup.create({
           data: {
+            firmId: actor.firmId,
             pickupNumber: await nextPickupNumber(tx),
             orderId: order.id,
             branchId: input.branchId,

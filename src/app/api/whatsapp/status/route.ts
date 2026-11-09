@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(req: Request) {
   try {
-    const user = await requirePermission(PERMISSIONS.SETTINGS_MANAGE);
+    const user = await requirePermission(PERMISSIONS.WHATSAPP_MANAGE);
     const { searchParams } = new URL(req.url);
     const forceRefresh = searchParams.get("refresh") === "true";
 

@@ -46,6 +46,7 @@ async function seedFirm() {
       id: FIRM_ID,
       code: "FALNIR",
       name: "Aurclean - Falnir",
+      logoUrl: "/logo.png",
       status: "ACTIVE",
     },
     update: {},
@@ -55,7 +56,7 @@ async function seedFirm() {
 /**
  * A fresh deployment has no way to reach the Firms module otherwise: every
  * firm's own admin is now correctly barred from it, so the very first
- * cross-firm Super Admin (PLATFORM_ADMIN, firmId null by design) has to
+ * cross-firm Super Admin (PLATFORM_SUPER_ADMIN, firmId null by design) has to
  * come from somewhere other than that same UI. Seeded once, idempotently.
  */
 async function seedPlatformAdmin() {
@@ -67,12 +68,12 @@ async function seedPlatformAdmin() {
       name: "Platform Super Admin",
       email: "platform-admin@aurclean.example",
       accessCode: "900001",
-      role: "PLATFORM_ADMIN",
+      role: "PLATFORM_SUPER_ADMIN",
       branchId: null,
     },
     update: {
       accessCode: "900001",
-      role: "PLATFORM_ADMIN",
+      role: "PLATFORM_SUPER_ADMIN",
     },
   });
 }
@@ -348,7 +349,7 @@ async function seedUsers(branches: {
       name: "Ravi Anand",
       email: "superadmin@auralaundry.example",
       accessCode: "100001",
-      role: "SUPER_ADMIN",
+      role: "FIRM_MANAGER",
       branchId: branches.headOffice.id,
       department: "Technology",
       designation: "System Administrator",
@@ -358,7 +359,7 @@ async function seedUsers(branches: {
       name: "Sunita Rao",
       email: "manager@auralaundry.example",
       accessCode: "200001",
-      role: "MANAGER",
+      role: "FIELD_MANAGER",
       branchId: branches.headOffice.id,
       department: "Leadership",
       designation: "Proprietor",
@@ -368,7 +369,7 @@ async function seedUsers(branches: {
       name: "Deepak Menon",
       email: "manager2@auralaundry.example",
       accessCode: "200002",
-      role: "MANAGER",
+      role: "FIELD_MANAGER",
       branchId: branches.branch1.id,
       department: "Operations",
       designation: "Branch Manager",
@@ -378,7 +379,7 @@ async function seedUsers(branches: {
       name: "Rekha Pillai",
       email: "manager3@auralaundry.example",
       accessCode: "200003",
-      role: "MANAGER",
+      role: "FIELD_MANAGER",
       branchId: branches.branch2.id,
       department: "Operations",
       designation: "Branch Manager",
@@ -388,7 +389,7 @@ async function seedUsers(branches: {
       name: "Nandini Bhat",
       email: "accountant@auralaundry.example",
       accessCode: "200004",
-      role: "MANAGER",
+      role: "FIELD_MANAGER",
       branchId: branches.headOffice.id,
       department: "Finance",
       designation: "Accountant",
@@ -398,7 +399,7 @@ async function seedUsers(branches: {
       name: "Anjali Verma",
       email: "counter@auralaundry.example",
       accessCode: "300001",
-      role: "SCANNER",
+      role: "QC",
       branchId: branches.branch1.id,
       department: "Front Desk",
       designation: "Counter Executive",
@@ -408,7 +409,7 @@ async function seedUsers(branches: {
       name: "Suresh Kumar",
       email: "counter2@auralaundry.example",
       accessCode: "300002",
-      role: "SCANNER",
+      role: "QC",
       branchId: branches.branch2.id,
       department: "Front Desk",
       designation: "Counter Executive",
@@ -418,7 +419,7 @@ async function seedUsers(branches: {
       name: "Mahesh Gowda",
       email: "washing@auralaundry.example",
       accessCode: "300003",
-      role: "SCANNER",
+      role: "QC",
       branchId: branches.branch1.id,
       department: "Production",
       designation: "Washing Operator",
@@ -428,7 +429,7 @@ async function seedUsers(branches: {
       name: "Lalita Devi",
       email: "ironing@auralaundry.example",
       accessCode: "300004",
-      role: "SCANNER",
+      role: "QC",
       branchId: branches.branch1.id,
       department: "Production",
       designation: "Ironing Operator",
@@ -438,7 +439,7 @@ async function seedUsers(branches: {
       name: "Fatima Sheikh",
       email: "qc@auralaundry.example",
       accessCode: "300005",
-      role: "SCANNER",
+      role: "QC",
       branchId: branches.branch1.id,
       department: "Quality",
       designation: "Quality Inspector",
@@ -448,7 +449,7 @@ async function seedUsers(branches: {
       name: "Joseph Dsouza",
       email: "packing@auralaundry.example",
       accessCode: "300006",
-      role: "SCANNER",
+      role: "QC",
       branchId: branches.branch1.id,
       department: "Production",
       designation: "Packing Operator",
@@ -458,7 +459,7 @@ async function seedUsers(branches: {
       name: "Ganesh Naik",
       email: "driver@auralaundry.example",
       accessCode: "300007",
-      role: "SCANNER",
+      role: "QC",
       branchId: branches.branch1.id,
       department: "Logistics",
       designation: "Delivery Executive",
@@ -473,7 +474,7 @@ async function seedUsers(branches: {
       name: "Prakash Shetty",
       email: "driver2@auralaundry.example",
       accessCode: "300008",
-      role: "SCANNER",
+      role: "QC",
       branchId: branches.branch2.id,
       department: "Logistics",
       designation: "Delivery Executive",
@@ -488,7 +489,7 @@ async function seedUsers(branches: {
       name: "Imtiaz Ali",
       email: "cpu@auralaundry.example",
       accessCode: "300009",
-      role: "SCANNER",
+      role: "QC",
       branchId: branches.cpu.id,
       department: "Production",
       designation: "Senior Washing Operator",
@@ -686,7 +687,7 @@ async function seedInventory(branchIds: string[]) {
     ),
   );
 
-  const admin = await prisma.user.findFirst({ where: { role: "SUPER_ADMIN" } });
+  const admin = await prisma.user.findFirst({ where: { role: "FIRM_MANAGER" } });
 
   for (const branchId of branchIds) {
     for (const item of created) {
@@ -1493,6 +1494,7 @@ async function seedOrders(context: {
         createdAt: placedAt,
         items: {
           create: lines.map((line) => ({
+            firmId: FIRM_ID,
             serviceId: line.service.id,
             garmentTypeId: line.garmentType.id,
             quantity: line.quantity,
@@ -1587,6 +1589,7 @@ async function seedOrders(context: {
       pickupCounter += 1;
       await prisma.pickup.create({
         data: {
+          firmId: FIRM_ID,
           pickupNumber: `PCK${String(pickupCounter).padStart(6, "0")}`,
           orderId: order.id,
           branchId: branch.id,

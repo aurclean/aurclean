@@ -385,7 +385,7 @@ export async function generateStatementAction(
 
       await tx.invoice.create({
         data: {
-          invoiceNumber: await nextInvoiceNumber(tx),
+          invoiceNumber: await nextInvoiceNumber(tx, account.firmId),
           type: "B2B_MONTHLY",
           status: paid >= total ? "PAID" : "ISSUED",
           branchId,

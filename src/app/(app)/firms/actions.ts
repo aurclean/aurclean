@@ -1,6 +1,6 @@
 "use server";
 
-import { sessionIdForFirm } from "@/lib/services/whatsapp";
+import { sessionIdForFirmCode } from "@/lib/services/whatsapp";
 import { revalidatePath } from "next/cache";
 
 import { prisma } from "@/lib/prisma";
@@ -13,7 +13,8 @@ import {
   runAction,
   type ActionResult,
 } from "@/lib/action-result";
-import { generateUniqueAccessCode } from "@/lib/access-code";
+import { generateUniqueAccessCode, accessCodeData, issueAccessCode, revokeAccessCode } from "@/lib/access-code";
+import { logLoginEvent } from "@/lib/login-security";
 import { nextEmployeeCode } from "@/lib/sequence";
 import { createFirmSchema, updateFirmSchema } from "@/lib/validations/firm";
 
@@ -27,7 +28,7 @@ export async function createFirmAction(
   payload: unknown,
 ): Promise<ActionResult<{ firmId: string; adminEmployeeCode: string; adminAccessCode: string }>> {
   return runAction(async () => {
-    await authorize(PERMISSIONS.FIRM_MANAGE);
+    const actor = await authorize(PERMISSIONS.FIRM_MANAGE);
     const input = createFirmSchema.parse(payload);
 
     const [codeClash, emailClash] = await Promise.all([
@@ -37,9 +38,10 @@ export async function createFirmAction(
     if (codeClash) throw new BusinessRuleError(`Firm code ${input.code} is already in use`);
     if (emailClash) throw new BusinessRuleError("That admin email address is already registered");
 
-    const accessCode = await generateUniqueAccessCode();
+    const { code: accessCode, hash: accessCodeHash } = await generateUniqueAccessCode();
 
     const result = await prisma.$transaction(async (tx) => {
+      // 1-2. Unique firmId (cuid) and the firm record.
       const firm = await tx.firm.create({
         data: {
           code: input.code,
@@ -54,25 +56,62 @@ export async function createFirmAction(
           gstin: input.gstin ?? null,
           pan: input.pan ?? null,
           website: input.website ?? null,
+          logoUrl: input.logoUrl || null,
           status: "ACTIVE",
         },
       });
 
-      // Each firm gets its own (not yet connected) WhatsApp session record.
-      await tx.whatsAppSession.create({
-        data: { firmId: firm.id, provider: "openwa", sessionName: sessionIdForFirm(firm.id), displayName: firm.name },
+      // First branch (every order/customer needs one).
+      const branch = await tx.branch.create({
+        data: {
+          firmId: firm.id,
+          code: `${input.code}-HO`.slice(0, 24),
+          name: input.branchName || input.name,
+          type: "HEAD_OFFICE",
+          addressLine: input.addressLine ?? null,
+          city: input.city ?? null,
+          state: input.state ?? null,
+          pincode: input.pincode ?? null,
+          phone: input.branchPhone ?? input.phone ?? null,
+          email: input.email ?? null,
+          gstNumber: input.gstin ?? null,
+        },
       });
 
+      // 6. Firm-specific settings (currency, numbering, terms, branding).
+      const settings: Array<[string, string, string]> = [
+        ["company_name", input.name, "company"],
+        ["default_currency", input.currency, "company"],
+        ["invoice_prefix", input.invoicePrefix, "documents"],
+        ["challan_prefix", input.challanPrefix, "documents"],
+        ["receipt_prefix", "REC", "documents"],
+      ];
+      await tx.setting.createMany({
+        data: settings.map(([key, value, category]) => ({ firmId: firm.id, key, value, category })),
+      });
+
+      // 7. Separate WhatsApp connection record, named after the firm.
+      let sessionName = sessionIdForFirmCode(firm.code);
+      if (await tx.whatsAppSession.findUnique({ where: { sessionName } })) {
+        sessionName = sessionIdForFirmCode(firm.code, firm.id);
+      }
+      await tx.whatsAppSession.create({
+        data: { firmId: firm.id, provider: "openwa", sessionName, displayName: firm.name },
+      });
+
+      // 3-5. The Firm Manager, bound to this firm, with a hashed access code.
       const employeeCode = await nextEmployeeCode(tx);
       const admin = await tx.user.create({
         data: {
           firmId: firm.id,
+          branchId: branch.id,
           employeeCode,
           name: input.adminName,
           email: input.adminEmail,
           phone: input.adminPhone ?? null,
-          accessCode,
-          role: "SUPER_ADMIN",
+          ...accessCodeData(accessCodeHash),
+          createdById: actor.id,
+          role: "FIRM_MANAGER",
         },
         select: { id: true, employeeCode: true },
       });
@@ -80,15 +119,18 @@ export async function createFirmAction(
       return { firm, admin };
     });
 
+    await logLoginEvent({ event: "CODE_ISSUED", firmId: result.firm.id, userId: result.admin.id, detail: `by ${actor.id}` });
     await recordAudit({
+      userId: actor.id,
       firmId: result.firm.id,
       action: "FIRM_CREATED",
       entity: "Firm",
       entityId: result.firm.id,
-      summary: `${result.firm.name} (${result.firm.code}) created with admin ${input.adminName}`,
+      summary: `${result.firm.name} (${result.firm.code}) created with Firm Manager ${input.adminName}`,
     });
 
     revalidatePath("/firms");
+    // 8. The plaintext code is returned to the caller once; only its hash is stored.
     return {
       firmId: result.firm.id,
       adminEmployeeCode: result.admin.employeeCode ?? "",
@@ -144,7 +186,7 @@ export async function updateFirmAction(payload: unknown): Promise<ActionResult<n
  */
 export async function setFirmStatusAction(
   firmId: string,
-  status: "ACTIVE" | "INACTIVE",
+  status: "ACTIVE" | "INACTIVE" | "SUSPENDED",
 ): Promise<ActionResult<null>> {
   return runAction(async () => {
     await authorize(PERMISSIONS.FIRM_MANAGE);
@@ -152,17 +194,17 @@ export async function setFirmStatusAction(
     const firm = await prisma.firm.findUnique({ where: { id: firmId }, select: { id: true, name: true, status: true } });
     if (!firm) throw new NotFoundError("Firm not found");
     if (firm.status === status) {
-      throw new BusinessRuleError(`${firm.name} is already ${status === "ACTIVE" ? "active" : "inactive"}`);
+      throw new BusinessRuleError(`${firm.name} is already ${status.toLowerCase()}`);
     }
 
     await prisma.firm.update({ where: { id: firmId }, data: { status } });
 
     await recordAudit({
       firmId,
-      action: status === "ACTIVE" ? "FIRM_ACTIVATED" : "FIRM_DEACTIVATED",
+      action: status === "ACTIVE" ? "FIRM_ACTIVATED" : status === "SUSPENDED" ? "FIRM_SUSPENDED" : "FIRM_DEACTIVATED",
       entity: "Firm",
       entityId: firmId,
-      summary: `${firm.name} ${status === "ACTIVE" ? "activated" : "deactivated"}`,
+      summary: `${firm.name} ${status === "ACTIVE" ? "activated" : status === "SUSPENDED" ? "suspended" : "deactivated"}`,
     });
 
     revalidatePath("/firms");
@@ -183,12 +225,12 @@ export async function resetFirmAdminAccessCodeAction(
       select: { id: true, name: true, role: true, firmId: true },
     });
     if (!admin) throw new NotFoundError("Admin account not found");
-    if (admin.role !== "SUPER_ADMIN") {
+    if (admin.role !== "FIRM_MANAGER") {
       throw new BusinessRuleError("This action only resets a firm's own admin account");
     }
 
-    const accessCode = await generateUniqueAccessCode();
-    await prisma.user.update({ where: { id: userId }, data: { accessCode } });
+    const accessCode = await issueAccessCode(userId);
+    await logLoginEvent({ event: "CODE_REGENERATED", firmId: admin.firmId, userId });
 
     await recordAudit({
       firmId: admin.firmId,
@@ -200,5 +242,28 @@ export async function resetFirmAdminAccessCodeAction(
 
     revalidatePath(`/firms/${admin.firmId}`);
     return { accessCode };
+  });
+}
+
+/** Revokes a Firm Manager's access code. They cannot sign in until a new one is issued. */
+export async function revokeFirmAdminAccessCodeAction(userId: string): Promise<ActionResult<null>> {
+  return runAction(async () => {
+    const actor = await authorize(PERMISSIONS.FIRM_MANAGE);
+    const admin = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, name: true, role: true, firmId: true } });
+    if (!admin) throw new NotFoundError("Account not found");
+    if (admin.role !== "FIRM_MANAGER") throw new BusinessRuleError("This action only revokes a Firm Manager's access");
+
+    await revokeAccessCode(userId);
+    await logLoginEvent({ event: "CODE_REVOKED", firmId: admin.firmId, userId, detail: `by ${actor.id}` });
+    await recordAudit({
+      userId: actor.id,
+      firmId: admin.firmId,
+      action: "FIRM_ADMIN_ACCESS_CODE_REVOKED",
+      entity: "User",
+      entityId: userId,
+      summary: `Access revoked for ${admin.name}`,
+    });
+    revalidatePath(`/firms/${admin.firmId}`);
+    return null;
   });
 }

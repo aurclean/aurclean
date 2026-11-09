@@ -113,6 +113,14 @@ export const PERMISSIONS = {
   RECONCILE_MANAGE: "reconcile.manage",
   DATA_IMPORT_EXPORT: "data.import_export",
 
+  // Per-firm WhatsApp account management (connect / QR / disconnect / logs)
+  WHATSAPP_MANAGE: "whatsapp.manage",
+
+  // Quality control (QC role) and assigned field jobs (Field Manager role)
+  QC_VIEW: "qc.view",
+  QC_PERFORM: "qc.perform",
+  FIELD_JOBS: "field.jobs",
+
   // Platform (cross-firm) administration — PLATFORM_ADMIN only, never
   // granted within a firm's own role set.
   FIRM_VIEW: "firm.view",
@@ -147,28 +155,26 @@ const ALL_PERMISSIONS = Object.values(PERMISSIONS) as PermissionCode[];
 const PLATFORM_ONLY_PERMISSIONS: PermissionCode[] = [P.FIRM_VIEW, P.FIRM_MANAGE, P.PLATFORM_VIEW];
 
 /**
- * Manager: full operational and business access. Everything the shop needs to
- * run day to day — orders, garments, customers, payments, inventory, staff,
- * reports, scanning and printing — but never RBAC or system settings.
+ * FIELD_MANAGER: assigned pickup and delivery jobs only. Deliberately has no
+ * orders/customers/billing/delivery-module permission — everything it can see
+ * is served by the /field pages, which query ONLY jobs assigned to the user.
  */
-const MANAGER_PERMISSIONS: PermissionCode[] = [
-  P.DASHBOARD_VIEW,
-  P.DASHBOARD_VIEW_FINANCIALS,
-  P.DASHBOARD_VIEW_ALL_BRANCHES,
+const FIELD_MANAGER_PERMISSIONS: PermissionCode[] = [P.FIELD_JOBS, P.GARMENT_PHOTO_UPLOAD];
 
-  P.ORDER_VIEW,
-  P.ORDER_CREATE,
-  P.ORDER_UPDATE,
-  P.ORDER_DELETE,
-  P.ORDER_CANCEL,
-  P.ORDER_OVERRIDE_PRICE,
-  P.ORDER_APPLY_DISCOUNT,
-
+/**
+ * QC: the inspection queue plus the garment scan/update needed to pass, fail
+ * or send an item for rework. No financial, staff, settings or customer
+ * directory access.
+ */
+const QC_PERMISSIONS: PermissionCode[] = [
+  P.QC_VIEW,
+  P.QC_PERFORM,
   P.GARMENT_VIEW,
   P.GARMENT_SCAN,
   P.GARMENT_UPDATE,
   P.GARMENT_PHOTO_UPLOAD,
-
+  // Floor staff who were "Scanners" before the five-role model keep operating
+  // the processing stations (rework happens at these stations).
   P.PROCESSING_VIEW,
   P.PROCESSING_SORTING,
   P.PROCESSING_WASHING,
@@ -176,111 +182,35 @@ const MANAGER_PERMISSIONS: PermissionCode[] = [
   P.PROCESSING_IRONING,
   P.PROCESSING_QC,
   P.PROCESSING_PACKING,
-
-  P.DELIVERY_VIEW,
-  P.DELIVERY_MANAGE,
-  P.DELIVERY_ASSIGN_DRIVER,
-  P.DELIVERY_COLLECT_PAYMENT,
-
-  P.BILLING_VIEW,
-  P.BILLING_CREATE_INVOICE,
-  P.BILLING_RECORD_PAYMENT,
-  P.BILLING_REFUND,
-
-  P.INVENTORY_VIEW,
-  P.INVENTORY_MANAGE,
-  P.INVENTORY_TRANSFER,
-  P.INVENTORY_ADJUST,
-
   P.TRACKING_VIEW,
-  P.TRACKING_RESOLVE,
+];
 
-  P.CUSTOMER_VIEW,
-  P.CUSTOMER_MANAGE,
-
-  P.PURCHASE_VIEW,
-  P.PURCHASE_MANAGE,
-  P.PURCHASE_PAY,
-
-  P.B2B_VIEW,
-  P.B2B_MANAGE,
-  P.B2B_BILLING,
-
-  P.STAFF_VIEW,
-  P.STAFF_MANAGE,
-  P.STAFF_ATTENDANCE,
-  P.STAFF_APPROVE_LEAVE,
-
-  P.COMPLAINT_VIEW,
-  P.COMPLAINT_CREATE,
-  P.COMPLAINT_MANAGE,
-  P.COMPLAINT_RESOLVE,
-
-  P.REPORT_VIEW,
-  P.REPORT_SALES,
-  P.REPORT_OPERATIONS,
-  P.REPORT_FINANCE,
-  P.REPORT_EXPORT,
-
-  P.NOTIFICATION_VIEW,
-  P.NOTIFICATION_MANAGE,
-
-  P.EXPENSE_VIEW,
-  P.EXPENSE_MANAGE,
-  P.EXPENSE_APPROVE,
-
-  P.FINANCE_VIEW,
-  P.FINANCE_MANAGE,
-  P.BANK_MANAGE,
-  P.RECONCILE_MANAGE,
-  P.DATA_IMPORT_EXPORT,
-
-  // Deliberately excluded: BRANCH_MANAGE, CATALOGUE_MANAGE, SETTINGS_MANAGE,
-  // AUDIT_VIEW, RBAC_MANAGE — sensitive system/RBAC settings stay with Super Admin.
+/** Permissions that only the platform-level role holds. */
+const FIRM_MANAGER_EXCLUDED: PermissionCode[] = [
+  ...PLATFORM_ONLY_PERMISSIONS,
+  P.FIELD_JOBS,
 ];
 
 /**
- * Scanner: the counter/laundry scanning role. Scan a garment, see the owner
- * and order, update the laundry status the scan implies, print the tag, and
- * move on to the next garment. Nothing administrative.
- */
-const SCANNER_PERMISSIONS: PermissionCode[] = [
-  P.GARMENT_VIEW,
-  P.GARMENT_SCAN,
-  P.GARMENT_UPDATE,
-  P.ORDER_VIEW,
-  P.CUSTOMER_VIEW,
-  P.TRACKING_VIEW,
-  P.TRACKING_RESOLVE,
-  P.PROCESSING_VIEW,
-  P.PROCESSING_SORTING,
-  P.PROCESSING_WASHING,
-  P.PROCESSING_DRYING,
-  P.PROCESSING_IRONING,
-  P.PROCESSING_QC,
-  P.PROCESSING_PACKING,
-];
-
-/**
- * Default role → permission matrix. Seeded into the database as RolePermission
- * rows; per-user overrides live in UserPermission.
+ * Default role → permission matrix, synced into role_permissions by
+ * `npm run db:sync-permissions`.
  *
- * PLATFORM_ADMIN gets every operational permission too — same as SUPER_ADMIN
- * — because once a PLATFORM_ADMIN "enters" a firm (see session.ts's
- * activeFirmId) they operate inside it exactly like that firm's own admin.
- * Outside of an entered firm, operational pages simply have no firmId to
- * resolve data against and redirect to the Firms module instead; the
- * permission bit being set is harmless on its own.
+ * PLATFORM_SUPER_ADMIN holds every permission, but only exercises the
+ * operational ones after explicitly "entering" a firm (session.activeFirmId);
+ * with no firm entered, operational pages have nothing to scope to.
+ * CUSTOMER has no staff permissions at all: the customer portal is gated by
+ * the customer's own session, never by this matrix.
  */
 export const ROLE_PERMISSIONS: Record<UserRole, PermissionCode[]> = {
-  PLATFORM_ADMIN: [...new Set([...ALL_PERMISSIONS, ...PLATFORM_ONLY_PERMISSIONS])],
-  SUPER_ADMIN: ALL_PERMISSIONS.filter((code) => !PLATFORM_ONLY_PERMISSIONS.includes(code)),
-  MANAGER: [...new Set(MANAGER_PERMISSIONS)],
-  SCANNER: [...new Set(SCANNER_PERMISSIONS)],
+  PLATFORM_SUPER_ADMIN: [...new Set([...ALL_PERMISSIONS, ...PLATFORM_ONLY_PERMISSIONS])],
+  FIRM_MANAGER: ALL_PERMISSIONS.filter((code) => !FIRM_MANAGER_EXCLUDED.includes(code)),
+  FIELD_MANAGER: [...new Set(FIELD_MANAGER_PERMISSIONS)],
+  QC: [...new Set(QC_PERMISSIONS)],
+  CUSTOMER: [],
 };
 
 /** Roles that may see data across every branch (still bounded to their own firm) rather than just their own branch. */
-export const GLOBAL_ROLES: UserRole[] = ["PLATFORM_ADMIN", "SUPER_ADMIN"];
+export const GLOBAL_ROLES: UserRole[] = ["PLATFORM_SUPER_ADMIN", "FIRM_MANAGER"];
 
 export function isGlobalRole(role: UserRole): boolean {
   return GLOBAL_ROLES.includes(role);
@@ -288,31 +218,31 @@ export function isGlobalRole(role: UserRole): boolean {
 
 /** True cross-firm role — the only one that can operate without a firm selected. */
 export function isPlatformRole(role: UserRole): boolean {
-  return role === "PLATFORM_ADMIN";
+  return role === "PLATFORM_SUPER_ADMIN";
 }
 
 export function defaultPermissionsFor(role: UserRole): PermissionCode[] {
   return ROLE_PERMISSIONS[role] ?? [];
 }
 
-// SUPER_ADMIN keeps its existing enum value (unchanged access codes, unchanged
-// permission checks) but is now relabeled "Firm Admin" in the UI to match its
-// actual scope under multi-tenancy: full control of one firm, never another.
-// PLATFORM_ADMIN is the new cross-firm role and takes the "Super Admin" label
-// the spec uses for it.
 export const ROLE_LABELS: Record<UserRole, string> = {
-  PLATFORM_ADMIN: "Super Admin",
-  SUPER_ADMIN: "Firm Admin",
-  MANAGER: "Office Manager",
-  SCANNER: "Scanner",
+  PLATFORM_SUPER_ADMIN: "Platform Super Admin",
+  FIRM_MANAGER: "Firm Manager",
+  FIELD_MANAGER: "Field Manager",
+  QC: "QC",
+  CUSTOMER: "Customer",
 };
+
+/** Staff roles a Firm Manager may create (never another manager, never platform). */
+export const STAFF_ROLES: UserRole[] = ["FIELD_MANAGER", "QC"];
 
 /** Where a user of this role should land right after login. */
 export const ROLE_LANDING_PATH: Record<UserRole, string> = {
-  PLATFORM_ADMIN: "/firms",
-  SUPER_ADMIN: "/dashboard",
-  MANAGER: "/dashboard",
-  SCANNER: "/scan",
+  PLATFORM_SUPER_ADMIN: "/platform",
+  FIRM_MANAGER: "/dashboard",
+  FIELD_MANAGER: "/field",
+  QC: "/qc",
+  CUSTOMER: "/portal",
 };
 
 export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
@@ -382,6 +312,10 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   [P.CATALOGUE_MANAGE]: "Manage services, garment types and rates",
   [P.SETTINGS_MANAGE]: "Change system settings",
   [P.AUDIT_VIEW]: "View audit logs",
+  [P.WHATSAPP_MANAGE]: "Connect, disconnect and view this firm's WhatsApp account and message history",
+  [P.QC_VIEW]: "View the QC queue and QC history",
+  [P.QC_PERFORM]: "Pass, fail or send garments for rework",
+  [P.FIELD_JOBS]: "View and update assigned pickup and delivery jobs",
   [P.FIRM_VIEW]: "View the Firms directory",
   [P.FIRM_MANAGE]: "Create, edit, activate and deactivate firms",
   [P.PLATFORM_VIEW]: "View platform-wide statistics across all firms",

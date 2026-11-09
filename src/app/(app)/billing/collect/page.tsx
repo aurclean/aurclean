@@ -8,7 +8,7 @@ import { CollectForm } from "@/app/(app)/billing/collect/collect-form";
 import { prisma } from "@/lib/prisma";
 import { num } from "@/lib/money";
 import { PERMISSIONS } from "@/lib/rbac";
-import { assertBranchAccess, requirePermission } from "@/lib/session";
+import { assertBranchAccess, assertFirmAccess, requirePermission } from "@/lib/session";
 import { param, type SearchParams } from "@/lib/queries/filters";
 
 export const metadata = { title: "Collect payment" };
@@ -28,6 +28,7 @@ export default async function CollectPage({
         select: {
           id: true,
           branchId: true,
+          firmId: true,
           orderNumber: true,
           customerName: true,
           totalAmount: true,
@@ -54,6 +55,7 @@ export default async function CollectPage({
     );
   }
 
+  assertFirmAccess(user, order.firmId);
   assertBranchAccess(user, order.branchId);
 
   return (

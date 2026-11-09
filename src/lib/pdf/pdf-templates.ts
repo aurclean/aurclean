@@ -2,6 +2,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import { formatCurrency, amountInWords, num } from "@/lib/money";
+import { format } from "date-fns";
 import { formatDate, formatTime } from "@/lib/dates";
 import {
   getCompanyProfile,
@@ -10,6 +11,7 @@ import {
   type PDFTableColumn,
   type PDFTableRow,
   type SummaryLine,
+  type FinancialSummaryParams,
 } from "./pdf-builder";
 
 const UNIT_LABEL: Record<string, string> = {
@@ -56,10 +58,54 @@ function fileNamePrefix(companyName: string): string {
   return slug || "Document";
 }
 
+/** Thrown when a document is requested by a caller outside its owning firm. */
+export class DocumentAccessError extends Error {
+  constructor(message = "Document not found") {
+    super(message);
+    this.name = "DocumentAccessError";
+  }
+}
+
 /**
- * 1. Bill of Supply (Tax Invoice) PDF Generator
+ * The record must belong to the firm the caller is authorised for (taken
+ * from the session by the caller — never from a request parameter), and every
+ * record it is joined to must belong to that same firm. A mismatch is
+ * reported as "not found" so another firm's ids are never confirmed.
  */
-export async function generateInvoicePDF(invoiceId: string): Promise<{ buffer: Buffer; fileName: string }> {
+function assertFirmScope(
+  label: string,
+  recordFirmId: string,
+  expectedFirmId: string | undefined,
+  related: Array<{ firmId?: string | null } | null | undefined> = [],
+) {
+  if (expectedFirmId !== undefined && recordFirmId !== expectedFirmId) {
+    throw new DocumentAccessError(`${label} not found.`);
+  }
+  for (const rel of related) {
+    if (rel && rel.firmId && rel.firmId !== recordFirmId) {
+      throw new DocumentAccessError(`${label} is inconsistent with its related records.`);
+    }
+  }
+}
+
+export interface GenerateOptions {
+  /** The caller's own firm (from the authenticated session). */
+  firmId?: string;
+}
+
+/** Reference formats: 21-10-2026 and 01:49 PM. */
+const pdfDate = (value: Date | string | null | undefined) => (value ? format(new Date(value), "dd-MM-yyyy") : "");
+const pdfTime = (value: Date | string | null | undefined) => (value ? format(new Date(value), "hh:mm a") : "");
+
+/**
+ * 1. Invoice PDF — a "Tax Invoice" when the firm is GST-registered and tax is
+ * charged on this invoice, otherwise a "Bill of Supply". All figures are the
+ * saved invoice's own; nothing is recomputed here.
+ */
+export async function generateInvoicePDF(
+  invoiceId: string,
+  opts: GenerateOptions = {},
+): Promise<{ buffer: Buffer; fileName: string }> {
   const invoice = await prisma.invoice.findUnique({
     where: { id: invoiceId },
     include: {
@@ -75,54 +121,55 @@ export async function generateInvoicePDF(invoiceId: string): Promise<{ buffer: B
     },
   });
 
-  if (!invoice) throw new Error(`Invoice #${invoiceId} not found.`);
+  if (!invoice) throw new DocumentAccessError("Invoice not found.");
+  assertFirmScope("Invoice", invoice.firmId, opts.firmId, [invoice.branch, invoice.order, invoice.customer]);
 
   const company = await getCompanyProfile(invoice.firmId);
-  const builder = new PDFDocumentBuilder(company);
+  const gstAmount = num(invoice.cgstAmount) + num(invoice.sgstAmount) + num(invoice.igstAmount);
+  const isTaxInvoice = gstAmount > 0 && Boolean(company.gstin);
+  const docTitle = isTaxInvoice ? "Tax Invoice" : "Bill of Supply";
+
+  const builder = await PDFDocumentBuilder.create(company, `${docTitle} ${invoice.invoiceNumber}`);
 
   builder.renderCompanyHeader(branchProfile(invoice.branch));
-  builder.renderDocumentTitle("Bill of Supply");
+  builder.renderDocumentTitle(docTitle);
 
-  const orderType = invoice.order ? ORDER_TYPE_LABEL[invoice.order.type] || invoice.order.type : "—";
+  const orderType = invoice.order ? ORDER_TYPE_LABEL[invoice.order.type] || invoice.order.type : "";
+
+  const billTo = [
+    invoice.billToName || invoice.customer?.name || "Valued Customer",
+    `Contact No.: ${invoice.billToPhone || invoice.customer?.phone || ""}`,
+  ];
+  if (invoice.billToAddress) billTo.push(invoice.billToAddress);
+  if (invoice.billToGstin) billTo.push(`GSTIN: ${invoice.billToGstin}`);
 
   builder.renderInfoColumns([
-    {
-      heading: "Bill To",
-      lines: [
-        invoice.billToName || invoice.customer?.name || "Valued Customer",
-        `Contact No.: ${invoice.billToPhone || invoice.customer?.phone || "—"}`,
-      ],
-    },
+    { heading: "Bill To", lines: billTo },
     {
       heading: "Transportation Details",
       lines: [
         `Branch: ${invoice.branch.name}`,
         `Pickup/Delivery: ${orderType}`,
-        `Delivery Date: ${invoice.order ? formatDate(invoice.order.expectedDeliveryAt) : "—"}`,
+        `Delivery Date: ${invoice.order?.expectedDeliveryAt ? pdfDate(invoice.order.expectedDeliveryAt) : ""}`,
       ],
     },
     {
       heading: "Invoice Details",
-      lines: [
-        `Invoice No.: ${invoice.invoiceNumber}`,
-        `Date: ${formatDate(invoice.issuedAt)}`,
-        `Time: ${formatTime(invoice.issuedAt)}`,
-      ],
+      lines: [`Invoice No. ${invoice.invoiceNumber}`, `Date: ${pdfDate(invoice.issuedAt)}`, `Time: ${pdfTime(invoice.issuedAt)}`],
     },
   ]);
 
   const columns: PDFTableColumn[] = [
-    { id: "sl", header: "#", width: 5, align: "center" },
-    { id: "item", header: "Item Name", width: 33 },
-    { id: "qty", header: "Quantity", width: 13, align: "center" },
-    { id: "unit", header: "Unit", width: 9, align: "center" },
-    { id: "rate", header: "Final Rate", width: 18, align: "right" },
-    { id: "amount", header: "Amount", width: 22, align: "right" },
+    { id: "sl", header: "#", width: 7, align: "left" },
+    { id: "item", header: "Item name", width: 35 },
+    { id: "qty", header: "Quantity", width: 13, align: "right" },
+    { id: "unit", header: "Unit", width: 9, align: "right" },
+    { id: "rate", header: "Final Rate", width: 17, align: "right" },
+    { id: "amount", header: "Amount", width: 19, align: "right" },
   ];
 
-  // Real per-item pricing from the order's own line items, not an evenly
-  // divided guess — each OrderItem already carries its actual quantity,
-  // pricing mode and computed line total.
+  // Each OrderItem already carries its saved quantity, pricing mode and line
+  // total — those exact values are printed.
   const orderItems = invoice.order?.items ?? [];
   let totalQty = 0;
 
@@ -132,7 +179,7 @@ export async function generateInvoicePDF(invoiceId: string): Promise<{ buffer: B
           totalQty += item.quantity;
           return {
             sl: idx + 1,
-            item: `${item.garmentType.name} - ${item.service.name}`,
+            item: `${item.garmentType.name} ${item.service.name}`,
             qty: item.quantity,
             unit: UNIT_LABEL[item.pricingMode] || "-",
             rate: formatCurrency(item.unitPrice),
@@ -151,16 +198,6 @@ export async function generateInvoicePDF(invoiceId: string): Promise<{ buffer: B
           };
         });
 
-  builder.renderItemsTable(columns, rows, {
-    sl: "",
-    item: "TOTAL",
-    qty: totalQty,
-    unit: "",
-    rate: "",
-    amount: formatCurrency(invoice.subtotal),
-  });
-
-  const gstAmount = num(invoice.cgstAmount) + num(invoice.sgstAmount) + num(invoice.igstAmount);
   const paymentMode = invoice.payments[0]?.method || "Credit";
   const currentBalance = invoice.customer ? num(invoice.customer.outstandingAmount) : num(invoice.amountDue);
   const previousBalance = Math.max(0, currentBalance - num(invoice.amountDue));
@@ -170,10 +207,13 @@ export async function generateInvoicePDF(invoiceId: string): Promise<{ buffer: B
     summaryLines.push({ label: "Discount", value: `-${formatCurrency(invoice.discountAmount)}` });
   }
   if (gstAmount > 0) {
-    summaryLines.push({ label: `GST (${num(invoice.gstRate)}%)`, value: formatCurrency(gstAmount) });
+    const half = num(invoice.gstRate) / 2;
+    if (num(invoice.cgstAmount) > 0) summaryLines.push({ label: `CGST (${half}%)`, value: formatCurrency(invoice.cgstAmount) });
+    if (num(invoice.sgstAmount) > 0) summaryLines.push({ label: `SGST (${half}%)`, value: formatCurrency(invoice.sgstAmount) });
+    if (num(invoice.igstAmount) > 0) summaryLines.push({ label: `IGST (${num(invoice.gstRate)}%)`, value: formatCurrency(invoice.igstAmount) });
   }
   summaryLines.push(
-    { label: "TOTAL", value: formatCurrency(invoice.totalAmount), highlight: true },
+    { label: "Total", value: formatCurrency(invoice.totalAmount), highlight: true },
     { label: "Received", value: formatCurrency(invoice.amountPaid) },
     { label: "Balance", value: formatCurrency(invoice.amountDue), bold: true },
     { label: "Payment mode", value: paymentMode },
@@ -181,109 +221,120 @@ export async function generateInvoicePDF(invoiceId: string): Promise<{ buffer: B
     { label: "Current Balance", value: formatCurrency(currentBalance) },
   );
 
-  builder.renderFinancialSummary({
+  const summary: FinancialSummaryParams = {
     amountWordsLabel: "Invoice Amount In Words",
     amountWords: amountInWords(invoice.totalAmount),
     terms: company.termsConditions,
     lines: summaryLines,
-  });
+    signatory: { forName: `${company.name} - ${invoice.branch.name}` },
+  };
 
-  builder.renderSignatureBlock([{ title: "Authorized Signatory", name: `${company.name} - ${invoice.branch.name}` }]);
+  // The last item rows travel with the totals block, so a summary is never
+  // stranded alone on a continuation page.
+  builder.renderItemsTable(
+    columns,
+    rows,
+    { sl: "", item: "Total", qty: totalQty, unit: "", rate: "", amount: formatCurrency(invoice.subtotal) },
+    builder.measureFinancialSummary(summary),
+  );
+  builder.renderFinancialSummary(summary);
 
   const buffer = await builder.build();
   return {
     buffer,
-    fileName: `${fileNamePrefix(company.name)}-Bill-${invoice.invoiceNumber}.pdf`,
+    fileName: `${fileNamePrefix(company.name)}-${isTaxInvoice ? "Invoice" : "Bill"}-${invoice.invoiceNumber}.pdf`,
   };
 }
 
 /**
- * 2. Delivery Challan PDF Generator — non-financial: garments in transit,
- * never a subtotal/tax/paid/balance figure.
+ * 2. Delivery Challan PDF — a non-financial document: garments in transit
+ * only. No rate, subtotal, discount, tax, total, payment or balance is ever
+ * read into this template.
  */
-export async function generateChallanPDF(challanId: string): Promise<{ buffer: Buffer; fileName: string }> {
+export async function generateChallanPDF(
+  challanId: string,
+  opts: GenerateOptions = {},
+): Promise<{ buffer: Buffer; fileName: string }> {
   const challan = await prisma.deliveryChallan.findUnique({
     where: { id: challanId },
     include: {
       order: true,
       customer: true,
-      items: true,
+      items: { orderBy: { createdAt: "asc" } },
       branch: true,
     },
   });
 
-  if (!challan) throw new Error(`Delivery Challan #${challanId} not found.`);
+  if (!challan) throw new DocumentAccessError("Delivery Challan not found.");
+  assertFirmScope("Delivery Challan", challan.firmId, opts.firmId, [challan.branch, challan.order, challan.customer]);
 
   const company = await getCompanyProfile(challan.firmId);
-  const builder = new PDFDocumentBuilder(company);
+  const builder = await PDFDocumentBuilder.create(company, `Delivery Challan ${challan.challanNumber}`, "a5-on-a4");
 
   builder.renderCompanyHeader(branchProfile(challan.branch));
   builder.renderDocumentTitle("Delivery Challan");
 
   const orderType = ORDER_TYPE_LABEL[challan.order.type] || challan.order.type;
+  const deliveryDate = challan.deliveryDate || challan.expectedDeliveryDate;
+  const address = challan.customerAddress || challan.order.addressLine;
+
+  const customerLines = [challan.customerName, `Contact No.: ${challan.customerPhone}`];
+  if (address) customerLines.push(`Address: ${address}`);
 
   builder.renderInfoColumns([
-    {
-      heading: "Delivery Challan For",
-      lines: [challan.customerName, `Contact No.: ${challan.customerPhone}`],
-    },
-    {
-      heading: "Ship To",
-      lines: [challan.customerAddress || challan.order.addressLine || "—"],
-    },
+    { heading: "Delivery Challan for", lines: customerLines },
     {
       heading: "Transportation Details",
       lines: [
         `Branch: ${challan.branch.name}`,
         `Pickup/Delivery: ${orderType}`,
-        `Delivery Date: ${formatDate(challan.deliveryDate || challan.expectedDeliveryDate)}`,
+        `Delivery Date: ${deliveryDate ? pdfDate(deliveryDate) : ""}`,
       ],
     },
     {
       heading: "Challan Details",
-      lines: [
-        `Challan No.: ${challan.challanNumber}`,
-        `Date: ${formatDate(challan.challanDate)}`,
-        `Time: ${formatTime(challan.challanDate)}`,
-      ],
+      lines: [`Challan No. ${challan.challanNumber}`, `Date: ${pdfDate(challan.challanDate)}`, `Time: ${pdfTime(challan.challanDate)}`],
     },
   ]);
 
   const columns: PDFTableColumn[] = [
-    { id: "sl", header: "#", width: 6, align: "center" },
-    { id: "item", header: "Item Name", width: 58 },
-    { id: "qty", header: "Quantity", width: 18, align: "center" },
-    { id: "unit", header: "Unit", width: 18, align: "center" },
+    { id: "sl", header: "#", width: 8, align: "left" },
+    { id: "item", header: "Item name", width: 62 },
+    { id: "qty", header: "Quantity", width: 16, align: "right" },
+    { id: "unit", header: "Unit", width: 14, align: "right" },
   ];
 
+  // One row per distinct item (garment + service), quantities summed — the
+  // challan stores one record per garment, the printed document lists "Kids
+  // Shirt Steam Press — 4 Pcs".
+  const grouped = new Map<string, { name: string; qty: number }>();
+  for (const item of challan.items) {
+    const name = [item.description || item.category, item.service].filter(Boolean).join(" ");
+    const entry = grouped.get(name);
+    if (entry) entry.qty += item.quantity;
+    else grouped.set(name, { name, qty: item.quantity });
+  }
+
   let totalQty = 0;
-  const rows: PDFTableRow[] = challan.items.map((item, idx) => {
-    totalQty += item.quantity;
-    return {
-      sl: idx + 1,
-      item: item.description || item.category,
-      qty: item.quantity,
-      unit: "-",
-    };
+  const rows: PDFTableRow[] = [...grouped.values()].map((g, idx) => {
+    totalQty += g.qty;
+    return { sl: idx + 1, item: g.name, qty: g.qty, unit: "Pcs" };
   });
 
-  builder.renderItemsTable(columns, rows, {
-    sl: "",
-    item: "TOTAL",
-    qty: totalQty,
-    unit: "",
-  });
+  const footer = {
+    terms: challan.terms || company.termsConditions,
+    forName: `${company.name} - ${challan.branch.name}`,
+    title: "Authorized Signatory",
+  };
 
-  builder.renderNotesBlock(challan.terms || company.termsConditions);
-
-  builder.renderSignatureBlock(
-    [
-      { title: "Customer Signature" },
-      { title: "Delivered By", name: challan.deliveredByName || "Driver" },
-      { title: "Authorized Signatory", name: `${company.name} - ${challan.branch.name}` },
-    ],
-    "spread",
+  // The last item rows travel with the terms/signature block.
+  builder.renderItemsTable(
+    columns,
+    rows,
+    { sl: "", item: "Total", qty: totalQty, unit: "" },
+    builder.measureTermsAndSignature(footer),
   );
+  builder.renderTermsAndSignature(footer);
 
   const buffer = await builder.build();
   return {
@@ -295,7 +346,7 @@ export async function generateChallanPDF(challanId: string): Promise<{ buffer: B
 /**
  * 3. Payment Receipt PDF Generator
  */
-export async function generatePaymentReceiptPDF(paymentId: string): Promise<{ buffer: Buffer; fileName: string }> {
+export async function generatePaymentReceiptPDF(paymentId: string, opts: GenerateOptions = {}): Promise<{ buffer: Buffer; fileName: string }> {
   const payment = await prisma.payment.findUnique({
     where: { id: paymentId },
     include: {
@@ -306,10 +357,11 @@ export async function generatePaymentReceiptPDF(paymentId: string): Promise<{ bu
     },
   });
 
-  if (!payment) throw new Error(`Payment #${paymentId} not found.`);
+  if (!payment) throw new DocumentAccessError("Payment not found.");
+  assertFirmScope("Payment", payment.firmId, opts.firmId, [payment.branch, payment.order, payment.invoice]);
 
   const company = await getCompanyProfile(payment.firmId);
-  const builder = new PDFDocumentBuilder(company);
+  const builder = await PDFDocumentBuilder.create(company, "Payment Receipt");
 
   builder.renderCompanyHeader(branchProfile(payment.branch));
   builder.renderDocumentTitle("Payment Receipt");
@@ -374,7 +426,7 @@ export async function generatePaymentReceiptPDF(paymentId: string): Promise<{ bu
  * 4. Delivery Receipt PDF Generator — non-financial acknowledgement of
  * garments handed over to the customer.
  */
-export async function generateDeliveryReceiptPDF(deliveryId: string): Promise<{ buffer: Buffer; fileName: string }> {
+export async function generateDeliveryReceiptPDF(deliveryId: string, opts: GenerateOptions = {}): Promise<{ buffer: Buffer; fileName: string }> {
   const delivery = await prisma.delivery.findUnique({
     where: { id: deliveryId },
     include: {
@@ -384,10 +436,11 @@ export async function generateDeliveryReceiptPDF(deliveryId: string): Promise<{ 
     },
   });
 
-  if (!delivery) throw new Error(`Delivery #${deliveryId} not found.`);
+  if (!delivery) throw new DocumentAccessError("Delivery not found.");
+  assertFirmScope("Delivery", delivery.firmId, opts.firmId, [delivery.branch, delivery.order]);
 
   const company = await getCompanyProfile(delivery.firmId);
-  const builder = new PDFDocumentBuilder(company);
+  const builder = await PDFDocumentBuilder.create(company, "Delivery Receipt");
 
   builder.renderCompanyHeader(branchProfile(delivery.branch));
   builder.renderDocumentTitle("Delivery Receipt");
@@ -453,7 +506,7 @@ export async function generateDeliveryReceiptPDF(deliveryId: string): Promise<{ 
 /**
  * 5. Order Summary PDF Generator
  */
-export async function generateOrderSummaryPDF(orderId: string): Promise<{ buffer: Buffer; fileName: string }> {
+export async function generateOrderSummaryPDF(orderId: string, opts: GenerateOptions = {}): Promise<{ buffer: Buffer; fileName: string }> {
   const order = await prisma.order.findUnique({
     where: { id: orderId },
     include: {
@@ -463,10 +516,11 @@ export async function generateOrderSummaryPDF(orderId: string): Promise<{ buffer
     },
   });
 
-  if (!order) throw new Error(`Order #${orderId} not found.`);
+  if (!order) throw new DocumentAccessError("Order not found.");
+  assertFirmScope("Order", order.firmId, opts.firmId, [order.branch]);
 
   const company = await getCompanyProfile(order.firmId);
-  const builder = new PDFDocumentBuilder(company);
+  const builder = await PDFDocumentBuilder.create(company, "Order Summary");
 
   builder.renderCompanyHeader(branchProfile(order.branch));
   builder.renderDocumentTitle("Order Summary");
@@ -553,7 +607,7 @@ export async function generateOrderSummaryPDF(orderId: string): Promise<{ buffer
 /**
  * 6. Customer Statement / Ledger PDF Generator
  */
-export async function generateStatementPDF(customerId: string): Promise<{ buffer: Buffer; fileName: string }> {
+export async function generateStatementPDF(customerId: string, opts: GenerateOptions = {}): Promise<{ buffer: Buffer; fileName: string }> {
   const customer = await prisma.customer.findUnique({
     where: { id: customerId },
     include: {
@@ -562,10 +616,11 @@ export async function generateStatementPDF(customerId: string): Promise<{ buffer
     },
   });
 
-  if (!customer) throw new Error(`Customer #${customerId} not found.`);
+  if (!customer) throw new DocumentAccessError("Customer not found.");
+  assertFirmScope("Customer", customer.firmId, opts.firmId, [customer.branch]);
 
   const company = await getCompanyProfile(customer.firmId);
-  const builder = new PDFDocumentBuilder(company);
+  const builder = await PDFDocumentBuilder.create(company, "Statement");
 
   const statementNo = `STM-${customer.code}-${Date.now().toString().slice(-4)}`;
   builder.renderCompanyHeader(branchProfile(customer.branch));
@@ -628,16 +683,17 @@ export async function generateStatementPDF(customerId: string): Promise<{ buffer
 /**
  * 7. Expense Voucher PDF Generator
  */
-export async function generateExpenseReceiptPDF(expenseId: string): Promise<{ buffer: Buffer; fileName: string }> {
+export async function generateExpenseReceiptPDF(expenseId: string, opts: GenerateOptions = {}): Promise<{ buffer: Buffer; fileName: string }> {
   const expense = await prisma.expense.findUnique({
     where: { id: expenseId },
     include: { branch: true, createdBy: true, approvedBy: true },
   });
 
-  if (!expense) throw new Error(`Expense #${expenseId} not found.`);
+  if (!expense) throw new DocumentAccessError("Expense not found.");
+  assertFirmScope("Expense", expense.firmId, opts.firmId, [expense.branch]);
 
   const company = await getCompanyProfile(expense.firmId);
-  const builder = new PDFDocumentBuilder(company);
+  const builder = await PDFDocumentBuilder.create(company, "Expense Voucher");
 
   builder.renderCompanyHeader(branchProfile(expense.branch));
   builder.renderDocumentTitle("Expense Voucher");

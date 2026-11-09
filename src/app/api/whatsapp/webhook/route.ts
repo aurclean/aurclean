@@ -11,7 +11,7 @@ export async function POST(req: Request) {
     // Fail closed: with no configured secret there is nothing to verify a
     // caller against, and a missing/mismatched header must always be
     // rejected — never treated as implicitly trusted.
-    if (!OPENWA_API_KEY || !authHeader || authHeader.replace(/^Bearers+/i, "") !== OPENWA_API_KEY) {
+    if (!OPENWA_API_KEY || !authHeader || authHeader.replace(/^Bearer\s+/i, "") !== OPENWA_API_KEY) {
       return NextResponse.json({ error: "Unauthorized webhook caller" }, { status: 401 });
     }
 

@@ -41,7 +41,7 @@ import {
   reconnectWhatsAppAction,
   refreshWhatsAppAction,
   saveTemplateAction,
-  sendWhatsAppAction,
+  sendTestMessageAction,
 } from "./actions";
 
 interface Props {
@@ -272,11 +272,7 @@ export function WhatsAppSettingsView({ firmName, initialStatusData, templates: i
       return;
     }
     startTransition(async () => {
-      const res = await sendWhatsAppAction({
-        phone: testPhone,
-        messageType: "CUSTOM",
-        messageText: "Test message from AURCLEAN Laundry ERP. Connection verified successfully!",
-      });
+      const res = await sendTestMessageAction(testPhone);
 
       if (res.ok && res.data?.success) {
         toast.success(`Test WhatsApp message sent to ${testPhone}! (ID: ${res.data.messageId})`);

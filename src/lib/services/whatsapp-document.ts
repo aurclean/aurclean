@@ -73,7 +73,7 @@ export async function sendDocumentToWhatsApp(params: SendDocumentWhatsAppParams)
 
   switch (normType) {
     case "invoice": {
-      pdfResult = await generateInvoicePDF(documentId);
+      pdfResult = await generateInvoicePDF(documentId, { firmId });
       const invoice = await prisma.invoice.findUnique({
         where: { id: documentId },
         include: { order: true, customer: true },
@@ -90,7 +90,7 @@ export async function sendDocumentToWhatsApp(params: SendDocumentWhatsAppParams)
 
     case "challan":
     case "delivery_challan": {
-      pdfResult = await generateChallanPDF(documentId);
+      pdfResult = await generateChallanPDF(documentId, { firmId });
       const challan = await prisma.deliveryChallan.findUnique({
         where: { id: documentId },
         include: { order: true, customer: true, items: true },
@@ -106,7 +106,7 @@ export async function sendDocumentToWhatsApp(params: SendDocumentWhatsAppParams)
     }
 
     case "payment_receipt": {
-      pdfResult = await generatePaymentReceiptPDF(documentId);
+      pdfResult = await generatePaymentReceiptPDF(documentId, { firmId });
       const payment = await prisma.payment.findUnique({
         where: { id: documentId },
         include: { order: { include: { customer: true } } },
@@ -122,7 +122,7 @@ export async function sendDocumentToWhatsApp(params: SendDocumentWhatsAppParams)
     }
 
     case "delivery_receipt": {
-      pdfResult = await generateDeliveryReceiptPDF(documentId);
+      pdfResult = await generateDeliveryReceiptPDF(documentId, { firmId });
       const delivery = await prisma.delivery.findUnique({
         where: { id: documentId },
         include: { order: true },
@@ -138,7 +138,7 @@ export async function sendDocumentToWhatsApp(params: SendDocumentWhatsAppParams)
     }
 
     case "order_summary": {
-      pdfResult = await generateOrderSummaryPDF(documentId);
+      pdfResult = await generateOrderSummaryPDF(documentId, { firmId });
       const order = await prisma.order.findUnique({
         where: { id: documentId },
         include: { customer: true },
@@ -154,7 +154,7 @@ export async function sendDocumentToWhatsApp(params: SendDocumentWhatsAppParams)
     }
 
     case "statement": {
-      pdfResult = await generateStatementPDF(documentId);
+      pdfResult = await generateStatementPDF(documentId, { firmId });
       const customer = await prisma.customer.findUnique({
         where: { id: documentId },
       });
@@ -168,7 +168,7 @@ export async function sendDocumentToWhatsApp(params: SendDocumentWhatsAppParams)
     }
 
     case "expense": {
-      pdfResult = await generateExpenseReceiptPDF(documentId);
+      pdfResult = await generateExpenseReceiptPDF(documentId, { firmId });
       const expense = await prisma.expense.findUnique({ where: { id: documentId } });
       if (!expense) throw new Error("Expense record not found.");
       if (expense.firmId !== firmId) throw new Error("Expense record not found.");
@@ -214,7 +214,7 @@ export async function sendDocumentToWhatsApp(params: SendDocumentWhatsAppParams)
       action: "WHATSAPP_DOCUMENT_SENT",
       entity: "WhatsAppLog",
       entityId: result.messageId,
-      summary: `Dispatched ${pdfResult.fileName} to ${formattedPhone} via OpenWA`,
+      summary: `Dispatched ${pdfResult.fileName} to ${formattedPhone} via OpenWA (firm ${firmId})`,
     });
   }
 

@@ -27,7 +27,7 @@ function isActive(pathname: string, item: NavItem) {
 
 export function Sidebar({ permissions, platformOnly, open, onClose, user }: SidebarProps) {
   const pathname = usePathname();
-  const sections = visibleSections(permissions, platformOnly);
+  const sections = visibleSections(permissions, platformOnly, user.role);
 
   return (
     <>
@@ -47,7 +47,7 @@ export function Sidebar({ permissions, platformOnly, open, onClose, user }: Side
         )}
       >
         <div className="flex h-16 shrink-0 items-center justify-between gap-2 px-4">
-          <Link href="/dashboard" className="flex items-center gap-2.5 rounded-xl px-1 py-1 transition-opacity hover:opacity-90">
+          <Link href={platformOnly ? "/platform" : "/dashboard"} className="flex items-center gap-2.5 rounded-xl px-1 py-1 transition-opacity hover:opacity-90">
             <AurcleanLogo size="sm" variant="full" theme="light" />
           </Link>
           <Button

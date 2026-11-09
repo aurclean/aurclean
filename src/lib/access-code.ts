@@ -1,23 +1,101 @@
 import "server-only";
+
+import crypto from "node:crypto";
+
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@/generated/prisma/client";
 
-const CODE_LENGTH = 6;
+type Db = Prisma.TransactionClient | typeof prisma;
 
-function randomDigits(length: number): string {
-  let out = "";
-  for (let i = 0; i < length; i += 1) out += Math.floor(Math.random() * 10);
-  return out;
+/**
+ * Access codes identify exactly one user (and therefore one role and one
+ * firm). They are never stored: only HMAC-SHA256(pepper, code) is, and the
+ * plaintext is shown to the issuer exactly once.
+ *
+ * Production codes are 12 characters from a 32-symbol alphabet (~60 bits of
+ * CSPRNG entropy), formatted XXXX-XXXX-XXXX. They are not sequential or
+ * derivable from anything. Legacy 6-digit codes issued before this change
+ * keep working until regenerated (they are upgraded to hashes on first use).
+ */
+const ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"; // 32 unambiguous symbols (no 0 O 1 I)
+const CODE_CHARS = 12;
+
+export function normalizeAccessCode(raw: string): string {
+  return raw.replace(/[\s-]+/g, "").toUpperCase();
 }
 
-/** A short numeric code, guaranteed unique against every account issued so far. */
-export async function generateUniqueAccessCode(): Promise<string> {
-  for (let attempt = 0; attempt < 25; attempt += 1) {
-    const code = randomDigits(CODE_LENGTH);
-    const existing = await prisma.user.findUnique({
-      where: { accessCode: code },
-      select: { id: true },
-    });
-    if (!existing) return code;
+function pepper(): string {
+  const value = process.env.ACCESS_CODE_PEPPER || process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET;
+  if (value) return value;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("ACCESS_CODE_PEPPER (or AUTH_SECRET) must be set to hash access codes in production");
+  }
+  return "dev-only-access-code-pepper";
+}
+
+export function hashAccessCode(raw: string): string {
+  return crypto.createHmac("sha256", pepper()).update(normalizeAccessCode(raw)).digest("hex");
+}
+
+export function generateAccessCode(): string {
+  let out = "";
+  const max = 256 - (256 % ALPHABET.length); // rejection sampling: no modulo bias
+  while (out.length < CODE_CHARS) {
+    for (const byte of crypto.randomBytes(24)) {
+      if (byte >= max) continue;
+      out += ALPHABET[byte % ALPHABET.length];
+      if (out.length === CODE_CHARS) break;
+    }
+  }
+  return `${out.slice(0, 4)}-${out.slice(4, 8)}-${out.slice(8, 12)}`;
+}
+
+/** A fresh code plus its hash, guaranteed not to collide with any issued code. */
+export async function generateUniqueAccessCode(db: Db = prisma): Promise<{ code: string; hash: string }> {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const code = generateAccessCode();
+    const hash = hashAccessCode(code);
+    const clash = await db.user.findUnique({ where: { accessCodeHash: hash }, select: { id: true } });
+    if (!clash) return { code, hash };
   }
   throw new Error("Could not generate a unique access code — try again");
+}
+
+/** Data fragment that installs a new code on a user (clearing any legacy plaintext and lockout). */
+export function accessCodeData(hash: string) {
+  return {
+    accessCodeHash: hash,
+    accessCode: null,
+    accessCodeIssuedAt: new Date(),
+    failedLoginCount: 0,
+    lockedUntil: null,
+  };
+}
+
+/**
+ * Issues (or re-issues) a code for an existing user. The previous code stops
+ * working immediately. Returns the plaintext — the only time it exists.
+ */
+export async function issueAccessCode(userId: string, db: Db = prisma): Promise<string> {
+  const { code, hash } = await generateUniqueAccessCode(db);
+  await db.user.update({ where: { id: userId }, data: accessCodeData(hash) });
+  return code;
+}
+
+/** Revokes a user's code: nothing can sign in as them until a new one is issued. */
+export async function revokeAccessCode(userId: string, db: Db = prisma): Promise<void> {
+  await db.user.update({
+    where: { id: userId },
+    data: { accessCodeHash: null, accessCode: null, accessCodeIssuedAt: null },
+  });
+}
+
+/** High-entropy URL-safe token (customer links, etc.) and its hash. */
+export function generateOpaqueToken(): { token: string; hash: string } {
+  const token = crypto.randomBytes(32).toString("base64url");
+  return { token, hash: crypto.createHmac("sha256", pepper()).update(token).digest("hex") };
+}
+
+export function hashOpaqueToken(token: string): string {
+  return crypto.createHmac("sha256", pepper()).update(token).digest("hex");
 }

@@ -192,16 +192,34 @@ async function fetchOpenWa(
 
 const SESSION_PROVIDER = "openwa";
 
-/** Deterministic gateway session id for a firm. Never shared, never global. */
+/**
+ * Stable, human-readable gateway session id derived from the firm's own code
+ * (e.g. firm FALNIR → whatsapp_falnir). Globally unique because firm codes
+ * are unique; the firm id itself is appended only if a clash ever occurs.
+ * Sessions created before this naming scheme keep their stored `wa_<firmId>`
+ * name so their paired WhatsApp login survives.
+ */
+export function sessionIdForFirmCode(code: string, firmId?: string): string {
+  const slug = code.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "firm";
+  return `whatsapp_${slug}${firmId ? `_${firmId.slice(-6)}` : ""}`.slice(0, 80);
+}
+
+/** Legacy naming, retained only so existing sessions can be recognised. */
 export function sessionIdForFirm(firmId: string): string {
   return `wa_${firmId}`;
 }
 
-async function getOrCreateFirmSession(firmId: string) {
-  return prisma.whatsAppSession.upsert({
-    where: { firmId_provider: { firmId, provider: SESSION_PROVIDER } },
-    create: { firmId, provider: SESSION_PROVIDER, sessionName: sessionIdForFirm(firmId) },
-    update: {},
+export async function getOrCreateFirmSession(firmId: string) {
+  const existing = await prisma.whatsAppSession.findUnique({ where: { firmId_provider: { firmId, provider: SESSION_PROVIDER } } });
+  if (existing) return existing;
+  const firm = await prisma.firm.findUnique({ where: { id: firmId }, select: { code: true, name: true } });
+  if (!firm) throw new Error("Firm not found");
+  let sessionName = sessionIdForFirmCode(firm.code);
+  if (await prisma.whatsAppSession.findUnique({ where: { sessionName } })) {
+    sessionName = sessionIdForFirmCode(firm.code, firmId);
+  }
+  return prisma.whatsAppSession.create({
+    data: { firmId, provider: SESSION_PROVIDER, sessionName, displayName: firm.name },
   });
 }
 
@@ -248,15 +266,15 @@ export async function getWhatsAppStatus(firmId: string, _options?: { forceRefres
   const sessionId = row.sessionName;
   const checkedAt = new Date();
 
-  const persist = (data: { isConnected: boolean; connectedNumber: string | null; apiStatus: string; lastConnectedAt?: Date | null }) =>
+  const persist = (data: { isConnected: boolean; connectedNumber: string | null; apiStatus: string; lastConnectedAt?: Date | null; lastError?: string | null }) =>
     prisma.whatsAppSession
-      .update({ where: { id: row.id }, data: { ...data, qrCode: null, lastCheckedAt: checkedAt } })
+      .update({ where: { id: row.id }, data: { lastError: null, ...data, qrCode: null, lastCheckedAt: checkedAt } })
       .catch((err) => console.warn("WhatsApp session cache sync failed:", err?.message));
 
   const res = await fetchOpenWa(`/api/sessions/${encodeURIComponent(sessionId)}`, { timeoutMs: 5000 });
 
   if (!res.ok && (res.status === 503 || res.status === 504)) {
-    await persist({ isConnected: false, connectedNumber: null, apiStatus: "OPENWA_UNAVAILABLE" });
+    await persist({ isConnected: false, connectedNumber: null, apiStatus: "OPENWA_UNAVAILABLE", lastError: "WhatsApp gateway unreachable" });
     return baseStatus(firmId, {
       status: "openwa_unavailable",
       sessionId,
@@ -274,11 +292,12 @@ export async function getWhatsAppStatus(firmId: string, _options?: { forceRefres
   }
 
   if (!res.ok) {
-    await persist({ isConnected: false, connectedNumber: null, apiStatus: "FAILED" });
+    const failure = describeOpenWaError(res.status, res.error);
+    await persist({ isConnected: false, connectedNumber: null, apiStatus: "FAILED", lastError: failure });
     return baseStatus(firmId, {
       status: "failed",
       sessionId,
-      error: describeOpenWaError(res.status, res.error),
+      error: failure,
       lastConnectedAt: row.lastConnectedAt?.toISOString() ?? null,
     });
   }
@@ -336,6 +355,18 @@ export async function reconnectWhatsAppSession(firmId: string): Promise<WhatsApp
   return connectWhatsAppSession(firmId);
 }
 
+/**
+ * Issues a fresh QR for THIS firm's session only: restarts just this firm's
+ * unpaired socket. Refused while the session is paired (disconnect first).
+ */
+export async function refreshQrCode(firmId: string): Promise<WhatsAppStatusResponse> {
+  const current = await getWhatsAppStatus(firmId);
+  if (current.status === "ready") throw new Error("WhatsApp is already connected. Disconnect it first to link a different number.");
+  const { sessionName } = await getOrCreateFirmSession(firmId);
+  await fetchOpenWa(`/api/sessions/${encodeURIComponent(sessionName)}/stop`, { method: "POST", timeoutMs: 5000 });
+  return connectWhatsAppSession(firmId);
+}
+
 /** Logs out ONLY this firm's session. Other firms' sessions are untouched. */
 export async function disconnectWhatsAppSession(firmId: string): Promise<WhatsAppStatusResponse> {
   const { sessionName } = await getOrCreateFirmSession(firmId);
@@ -365,6 +396,17 @@ export async function sendWhatsAppMessage(params: SendWhatsAppParams): Promise<{
     throw new Error("Invalid phone number provided for WhatsApp message delivery.");
   }
 
+  // A customer/order id supplied by a caller must belong to THIS firm, or the
+  // log row (and its joined names/phones) could expose another firm's records.
+  if (params.customerId) {
+    const ok = await prisma.customer.count({ where: { id: params.customerId, firmId: params.firmId } });
+    if (!ok) throw new Error("Customer not found");
+  }
+  if (params.orderId) {
+    const ok = await prisma.order.count({ where: { id: params.orderId, firmId: params.firmId } });
+    if (!ok) throw new Error("Order not found");
+  }
+
   // Manual fallback so staff can still reach the customer; never implies the gateway sent anything.
   const whatsappWebUrl = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(params.messageText)}`;
 
@@ -390,8 +432,12 @@ export async function sendWhatsAppMessage(params: SendWhatsAppParams): Promise<{
   let status: WhatsAppMessageStatus = "SENT";
   let externalId: string | null = null;
   let errorMessage: string | null = null;
-  if (sendRes.ok) {
-    externalId = sendRes.data?.id || sendRes.data?.messageId || null;
+  if (sendRes.ok && (sendRes.data?.id || sendRes.data?.messageId)) {
+    externalId = sendRes.data?.id || sendRes.data?.messageId;
+  } else if (sendRes.ok) {
+    // A 2xx without a WhatsApp message id is not a confirmed send.
+    status = "FAILED";
+    errorMessage = "The WhatsApp gateway did not confirm that the message was sent.";
   } else {
     status = "FAILED";
     errorMessage = describeOpenWaError(sendRes.status, sendRes.error);
@@ -545,3 +591,24 @@ export async function handleWhatsAppWebhook(payload: {
 
   return { updated: false };
 }
+
+// ---------------------------------------------------------------------------
+// firmId-first service surface. Every entry point takes the firm explicitly
+// and resolves THAT firm's session only; there is no global/default session.
+// ---------------------------------------------------------------------------
+export const getSessionStatus = (firmId: string) => getWhatsAppStatus(firmId);
+export const connect = (firmId: string) => connectWhatsAppSession(firmId);
+export const disconnect = (firmId: string) => disconnectWhatsAppSession(firmId);
+export const getQRCode = async (firmId: string) => (await getWhatsAppStatus(firmId)).qrCode;
+
+type SendBase = Omit<SendWhatsAppParams, "firmId" | "messageType" | "documentBase64" | "messageText">;
+export const sendText = (firmId: string, p: SendBase & { text: string; messageType?: WhatsAppMessageType }) =>
+  sendWhatsAppMessage({ ...p, firmId, messageType: p.messageType ?? "CUSTOM", messageText: p.text });
+export const sendDocument = (firmId: string, p: SendBase & { caption: string; documentBase64: string; messageType?: WhatsAppMessageType }) =>
+  sendWhatsAppMessage({ ...p, firmId, messageType: p.messageType ?? "CUSTOM", messageText: p.caption });
+export const sendInvoice = (firmId: string, p: SendBase & { caption: string; documentBase64: string }) =>
+  sendDocument(firmId, { ...p, messageType: "INVOICE" });
+export const sendDeliveryChallan = (firmId: string, p: SendBase & { caption: string; documentBase64: string }) =>
+  sendDocument(firmId, { ...p, messageType: "DELIVERY_CHALLAN" });
+export const sendCustomerNotification = (firmId: string, p: SendBase & { text: string; messageType?: WhatsAppMessageType }) =>
+  sendText(firmId, p);

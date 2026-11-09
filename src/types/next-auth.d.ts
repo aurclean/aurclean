@@ -16,6 +16,7 @@ declare module "next-auth" {
       firmName: string | null;
       activeFirmId: string | null;
       activeFirmName: string | null;
+      customerId: string | null;
     } & DefaultSession["user"];
   }
 
@@ -30,6 +31,7 @@ declare module "next-auth" {
     firmName?: string | null;
     activeFirmId: string | null;
     activeFirmName?: string | null;
+    customerId?: string | null;
   }
 }
 
@@ -46,5 +48,6 @@ declare module "next-auth/jwt" {
     firmName: string | null;
     activeFirmId: string | null;
     activeFirmName: string | null;
+    customerId?: string | null;
   }
 }

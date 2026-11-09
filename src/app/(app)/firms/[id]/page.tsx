@@ -12,6 +12,7 @@ import { requirePermission } from "@/lib/session";
 import {
   EditFirmDialog,
   ResetAdminAccessCodeButton,
+  RevokeAdminAccessButton,
   ToggleFirmStatusButton,
 } from "@/app/(app)/firms/firm-dialogs";
 import { EnterFirmButton } from "@/app/(app)/firms/enter-firm-button";
@@ -34,7 +35,7 @@ export default async function FirmDetailPage({
         select: { id: true, name: true, code: true, type: true, isActive: true },
       },
       users: {
-        where: { role: "SUPER_ADMIN" },
+        where: { role: "FIRM_MANAGER" },
         orderBy: { createdAt: "asc" },
         select: { id: true, name: true, email: true, employeeCode: true, status: true },
       },
@@ -81,7 +82,7 @@ export default async function FirmDetailPage({
 
       {firm.status !== "ACTIVE" ? (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          This firm is deactivated. Its users cannot log in, and every API action, order
+          This firm is {firm.status === "SUSPENDED" ? "suspended" : "deactivated"}. Its users cannot log in, and every API action, order
           creation and scan is blocked — but no data has been deleted.
         </div>
       ) : null}
@@ -134,12 +135,13 @@ export default async function FirmDetailPage({
                 <div>
                   <p className="font-medium">{admin.name}</p>
                   <p className="text-xs text-muted-foreground">
-                    {ROLE_LABELS.SUPER_ADMIN} · {admin.email} · {admin.employeeCode}
+                    {ROLE_LABELS.FIRM_MANAGER} · {admin.email} · {admin.employeeCode}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
                   <StatusBadge status={admin.status} />
                   <ResetAdminAccessCodeButton userId={admin.id} />
+                  <RevokeAdminAccessButton userId={admin.id} />
                 </div>
               </div>
             ))

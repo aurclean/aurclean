@@ -108,9 +108,11 @@ export async function assignDriverAction(payload: unknown): Promise<ActionResult
 
     const driver = await prisma.driver.findUnique({
       where: { id: input.driverId },
-      include: { user: { select: { name: true, branchId: true, status: true } } },
+      include: { user: { select: { name: true, branchId: true, status: true, firmId: true } } },
     });
     if (!driver) throw new NotFoundError("Driver not found");
+    // The assignee must belong to the caller's own firm — never another firm's staff.
+    assertFirmAccess(user, driver.user.firmId);
     if (driver.user.status !== "ACTIVE") {
       throw new BusinessRuleError("That driver account is not active");
     }
@@ -118,9 +120,10 @@ export async function assignDriverAction(payload: unknown): Promise<ActionResult
     if (input.jobType === "PICKUP") {
       const pickup = await prisma.pickup.findUnique({
         where: { id: input.jobId },
-        select: { id: true, branchId: true, pickupNumber: true, status: true },
+        select: { id: true, branchId: true, pickupNumber: true, status: true, firmId: true },
       });
       if (!pickup) throw new NotFoundError("Pickup not found");
+      assertFirmAccess(user, pickup.firmId);
       assertBranchAccess(user, pickup.branchId);
       if (["PICKED_UP", "RECEIVED_AT_LAUNDRY", "CANCELLED"].includes(pickup.status)) {
         throw new BusinessRuleError("This pickup can no longer be reassigned");
@@ -182,7 +185,8 @@ export async function assignDriverAction(payload: unknown): Promise<ActionResult
 
 export async function advancePickupAction(payload: unknown): Promise<ActionResult<null>> {
   return runAction(async () => {
-    const user = await authorize(PERMISSIONS.DELIVERY_MANAGE);
+    // Dispatchers (DELIVERY_MANAGE) or the Field Manager the job is assigned to.
+    const user = await authorize([PERMISSIONS.DELIVERY_MANAGE, PERMISSIONS.FIELD_JOBS]);
     const input = advancePickupSchema.parse(payload);
 
     const pickup = await prisma.pickup.findUnique({
@@ -201,12 +205,16 @@ export async function advancePickupAction(payload: unknown): Promise<ActionResul
       },
     });
     if (!pickup) throw new NotFoundError("Pickup not found");
+    assertFirmAccess(user, pickup.firmId);
     assertBranchAccess(user, pickup.branchId);
 
     // A driver may only act on their own jobs.
     const isDispatcher = hasPermission(user, PERMISSIONS.DELIVERY_MANAGE);
     if (!isDispatcher && pickup.driver?.userId !== user.id) {
       throw new BusinessRuleError("This pickup is assigned to another driver");
+    }
+    if (!isDispatcher && !["DRIVER_ACCEPTED", "PICKED_UP", "FAILED"].includes(input.status)) {
+      throw new BusinessRuleError("Field managers can accept, pick up or mark a pickup failed");
     }
 
     const now = new Date();
@@ -239,7 +247,7 @@ export async function advancePickupAction(payload: unknown): Promise<ActionResul
 
 export async function dispatchDeliveryAction(payload: unknown): Promise<ActionResult<null>> {
   return runAction(async () => {
-    const user = await authorize(PERMISSIONS.DELIVERY_MANAGE);
+    const user = await authorize([PERMISSIONS.DELIVERY_MANAGE, PERMISSIONS.FIELD_JOBS]);
     const input = dispatchSchema.parse(payload);
 
     const delivery = await prisma.delivery.findUnique({
@@ -342,7 +350,7 @@ export async function dispatchDeliveryAction(payload: unknown): Promise<ActionRe
  */
 export async function completeDeliveryAction(payload: unknown): Promise<ActionResult<null>> {
   return runAction(async () => {
-    const user = await authorize(PERMISSIONS.DELIVERY_MANAGE);
+    const user = await authorize([PERMISSIONS.DELIVERY_MANAGE, PERMISSIONS.FIELD_JOBS]);
     const input = completeDeliverySchema.parse(payload);
 
     const delivery = await prisma.delivery.findUnique({
@@ -587,9 +595,11 @@ export async function cancelPickupAction(payload: unknown): Promise<ActionResult
         branchId: true,
         orderId: true,
         status: true,
+        firmId: true,
       },
     });
     if (!pickup) throw new NotFoundError("Pickup not found");
+    assertFirmAccess(user, pickup.firmId);
     assertBranchAccess(user, pickup.branchId);
 
     if (pickup.status === "RECEIVED_AT_LAUNDRY") {

@@ -5,7 +5,7 @@ import { authConfig } from "@/auth.config";
 
 const { auth } = NextAuth(authConfig);
 
-const PUBLIC_PATHS = ["/login", "/forbidden"];
+const PUBLIC_PATHS = ["/login", "/forbidden", "/portal/login", "/portal/link"];
 
 /**
  * Route gate. It only checks that a session exists — every permission decision
@@ -21,13 +21,16 @@ export default auth(function proxy(request) {
     const isPublic = PUBLIC_PATHS.some((path) => pathname.startsWith(path));
 
     if (!isLoggedIn && !isPublic) {
-      const loginUrl = new URL("/login", request.nextUrl.origin);
+      const loginUrl = new URL(pathname.startsWith("/portal") ? "/portal/login" : "/login", request.nextUrl.origin);
       if (pathname !== "/") loginUrl.searchParams.set("callbackUrl", pathname);
       return NextResponse.redirect(loginUrl);
     }
 
-    if (isLoggedIn && pathname === "/login") {
+    if (isLoggedIn && pathname === "/login" && !request.nextUrl.searchParams.has("expired")) {
       return NextResponse.redirect(new URL("/", request.nextUrl.origin));
+    }
+    if (isLoggedIn && pathname === "/portal/login") {
+      return NextResponse.redirect(new URL("/portal", request.nextUrl.origin));
     }
 
     // Expose the path to server layouts (they have no other way to read it).

@@ -17,7 +17,7 @@ import {
 import { setStaffStatusAction } from "@/app/(app)/staff/actions";
 import { prisma } from "@/lib/prisma";
 import { formatDate, toInputDate, todayRange } from "@/lib/dates";
-import { PERMISSIONS, ROLE_LABELS, isGlobalRole } from "@/lib/rbac";
+import { PERMISSIONS, ROLE_LABELS, STAFF_ROLES, isGlobalRole } from "@/lib/rbac";
 import { hasPermission, requireFirmId, requirePermission } from "@/lib/session";
 import { humanize } from "@/lib/utils";
 import {
@@ -32,7 +32,7 @@ import type { UserRole } from "@/generated/prisma/enums";
 
 export const metadata = { title: "Staff" };
 
-const ALL_ROLES = Object.keys(ROLE_LABELS) as UserRole[];
+const ALL_ROLES = (["FIRM_MANAGER", "FIELD_MANAGER", "QC"] as UserRole[]);
 
 interface StaffRow {
   id: string;
@@ -154,9 +154,7 @@ export default async function StaffPage({
   const canMarkAttendance = hasPermission(user, PERMISSIONS.STAFF_ATTENDANCE);
   const canApproveLeave = hasPermission(user, PERMISSIONS.STAFF_APPROVE_LEAVE);
 
-  const assignableRoles = ALL_ROLES.filter((candidate) =>
-    user.role === "SUPER_ADMIN" ? true : candidate !== "SUPER_ADMIN",
-  );
+  const assignableRoles = STAFF_ROLES;
 
   const columns: Column<StaffRow>[] = [
     {

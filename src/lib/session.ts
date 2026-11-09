@@ -50,14 +50,21 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
   const session = await auth();
   if (!session?.user?.id) return null;
 
-  const firmId = session.user.firmId ?? null;
+  // JWT sessions are stateless, so everything that can revoke access is
+  // re-verified against the database on every request: the account must still
+  // exist, be ACTIVE, hold the same role, still have a valid (un-revoked)
+  // access code, and belong to a firm that is still ACTIVE. Deactivating a
+  // user, revoking a code, or suspending a firm therefore cuts access at once.
+  const record = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { status: true, role: true, firmId: true, accessCodeHash: true, accessCode: true },
+  });
+  if (!record || record.status !== "ACTIVE" || record.role === "CUSTOMER") return null;
+  if (record.role !== session.user.role || (record.firmId ?? null) !== (session.user.firmId ?? null)) return null;
+  if (!record.accessCodeHash && !record.accessCode) return null;
+
+  const firmId = record.firmId;
   if (firmId) {
-    // JWT sessions are stateless, so a firm deactivated after a user's
-    // token was issued would otherwise keep working until the token next
-    // refreshes. Re-verified on every request so login, API access, order
-    // creation and scanning all stop immediately for a deactivated firm's
-    // users, per the multi-tenant spec's deactivation requirement — without
-    // ever deleting the firm's existing data.
     const firm = await prisma.firm.findUnique({ where: { id: firmId }, select: { status: true } });
     if (!firm || firm.status !== "ACTIVE") return null;
   }
@@ -83,7 +90,10 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
 /** For pages: bounces to /login when there is no session. */
 export async function requireUser(): Promise<SessionUser> {
   const user = await getCurrentUser();
-  if (!user) redirect("/login");
+  // A cookie that no longer maps to an active user (deactivated, revoked,
+  // firm suspended) is sent to sign-in with `expired` so the route gate does
+  // not bounce it straight back to "/" in a loop.
+  if (!user) redirect("/login?expired=1");
   return user;
 }
 

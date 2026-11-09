@@ -99,7 +99,7 @@ export async function createDeliveryChallan(params: CreateDeliveryChallanParams)
   const challanPaid = Math.min(Number(order.paidAmount), challanGrandTotal);
   const challanBalance = Math.max(0, challanGrandTotal - challanPaid);
 
-  const challanNumber = await nextChallanNumber();
+  const challanNumber = await nextChallanNumber(prisma, order.firmId);
 
   // Determine initial status
   const isPartial = selectedGarments.length < order.garments.length;

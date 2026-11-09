@@ -61,7 +61,7 @@ export function LeaveFirmButton() {
       onClick={() =>
         startTransition(async () => {
           await update({ activeFirmId: null });
-          router.push("/firms");
+          router.push("/platform");
           router.refresh();
         })
       }

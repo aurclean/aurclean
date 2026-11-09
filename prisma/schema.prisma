@@ -22,16 +22,39 @@ datasource db {
 // branches belong to. Kept the same enum value to avoid rewriting every
 // existing seeded access code and role check; see ROLE_LABELS for the
 // display-name mapping.
+/// Exactly five roles. Legacy values were renamed in place by migration
+/// 20261109000000_five_role_model (PLATFORM_ADMIN→PLATFORM_SUPER_ADMIN,
+/// SUPER_ADMIN→FIRM_MANAGER, MANAGER→FIELD_MANAGER, SCANNER→QC).
 enum UserRole {
-  PLATFORM_ADMIN
-  SUPER_ADMIN
-  MANAGER
-  SCANNER
+  PLATFORM_SUPER_ADMIN
+  FIRM_MANAGER
+  FIELD_MANAGER
+  QC
+  CUSTOMER
 }
 
 enum FirmStatus {
   ACTIVE
   INACTIVE
+  SUSPENDED
+}
+
+enum QCResult {
+  PENDING
+  PASSED
+  FAILED
+  REWORK
+}
+
+enum LoginEventType {
+  LOGIN_SUCCESS
+  LOGIN_FAILED
+  LOGIN_LOCKED
+  LOGOUT
+  CODE_ISSUED
+  CODE_REGENERATED
+  CODE_REVOKED
+  OTP_REQUESTED
 }
 
 enum UserStatus {
@@ -447,6 +470,10 @@ model Firm {
   whatsAppTemplates WhatsAppTemplate[]
   whatsAppSessions  WhatsAppSession[]
   whatsAppLogs      WhatsAppLog[]
+  qcRecords         QCRecord[]
+  pickups           Pickup[]
+  orderItems        OrderItem[]
+  notifications     Notification[]
 
   @@index([status])
   @@map("firms")
@@ -529,8 +556,18 @@ model User {
   phone        String?
   /// The single credential used to sign in — a short code entered on the
   /// access-code screen instead of an email/password pair.
-  accessCode   String     @unique
-  role         UserRole   @default(SCANNER)
+  ///
+  /// Legacy plaintext column: kept nullable only so existing accounts can
+  /// still sign in once and be upgraded in place. It is nulled as soon as the
+  /// code is hashed (see src/lib/access-code.ts) and never returned by any API.
+  accessCode   String?    @unique
+  /// HMAC-SHA256(pepper, code). Globally unique; the only thing stored for a code.
+  accessCodeHash     String?   @unique
+  accessCodeIssuedAt DateTime?
+  failedLoginCount   Int       @default(0)
+  lockedUntil        DateTime?
+  createdById        String?
+  role         UserRole   @default(QC)
   status       UserStatus @default(ACTIVE)
   branchId     String?
   branch       Branch?    @relation(fields: [branchId], references: [id], onDelete: SetNull)
@@ -542,6 +579,8 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  loginEvents  LoginEvent[]
+  qcRecords    QCRecord[]  @relation("QCInspector")
   accounts     Account[]
   sessions     Session[]
   permissions  UserPermission[]
@@ -982,6 +1021,7 @@ model Order {
   scanEvents    ScanEvent[]
   garmentScans  GarmentScan[]
   contextScans  GarmentScan[]        @relation("GarmentScanContext")
+  qcRecords     QCRecord[]
   whatsAppLogs  WhatsAppLog[]
 
   @@index([branchId, status])
@@ -992,10 +1032,14 @@ model Order {
   @@index([paymentStatus])
   @@index([b2bAccountId])
   @@index([firmId])
+  @@index([firmId, placedAt])
+  @@index([firmId, status])
   @@map("orders")
 }
 
 model OrderItem {
+  firmId String
+  firm   Firm   @relation(fields: [firmId], references: [id], onDelete: Restrict)
   id            String      @id @default(cuid())
   orderId       String
   order         Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
@@ -1018,6 +1062,7 @@ model OrderItem {
 
   @@index([orderId])
   @@index([serviceId])
+  @@index([firmId])
   @@map("order_items")
 }
 
@@ -1099,6 +1144,7 @@ model Garment {
   @@index([branchId, trackingCategory, status])
   @@index([firmId])
   @@map("garments")
+  qcRecords QCRecord[]
 }
 
 /// Immutable ledger — rows are only ever inserted, never updated or deleted.
@@ -1280,6 +1326,7 @@ model Invoice {
   @@index([b2bAccountId])
   @@index([status])
   @@index([firmId])
+  @@index([firmId, customerId])
   @@map("invoices")
 }
 
@@ -1341,6 +1388,7 @@ model Payment {
   @@index([invoiceId])
   @@index([providerPaymentId])
   @@index([firmId])
+  @@index([firmId, orderId])
   @@map("payments")
 }
 
@@ -1376,6 +1424,8 @@ model Refund {
 // ============================================================================
 
 model Pickup {
+  firmId String
+  firm   Firm   @relation(fields: [firmId], references: [id], onDelete: Restrict)
   id           String       @id @default(cuid())
   pickupNumber String       @unique
   orderId      String
@@ -1406,6 +1456,7 @@ model Pickup {
   @@index([branchId, status])
   @@index([driverId, scheduledAt])
   @@index([orderId])
+  @@index([firmId])
   @@map("pickups")
 }
 
@@ -2055,6 +2106,8 @@ model NotificationTemplate {
 }
 
 model Notification {
+  firmId String
+  firm   Firm   @relation(fields: [firmId], references: [id], onDelete: Restrict)
   id      String              @id @default(cuid())
   event   NotificationEvent
   channel NotificationChannel
@@ -2090,6 +2143,7 @@ model Notification {
   @@index([status])
   @@index([orderId])
   @@index([createdAt])
+  @@index([firmId])
   @@map("notifications")
 }
 
@@ -2158,6 +2212,10 @@ model Customer {
   phone String
   email String?
 
+  /// Customer-specific access link: only the HMAC of the token is stored.
+  portalTokenHash      String?   @unique
+  portalTokenExpiresAt DateTime?
+
   addressLine String?
   city        String?
   pincode     String?
@@ -2181,12 +2239,14 @@ model Customer {
   orders       Order[]
   invoices     Invoice[]
   deliveryChallans DeliveryChallan[]
+  otps         CustomerOtp[]
   whatsAppLogs WhatsAppLog[]
 
   @@unique([branchId, phone])
   @@index([branchId, name])
   @@index([phone])
   @@index([firmId])
+  @@index([firmId, phone])
   @@map("customers")
 }
 
@@ -2586,6 +2646,7 @@ model WhatsAppLog {
   @@index([orderId])
   @@index([status])
   @@index([externalId])
+  @@index([sentAt])
   @@map("whatsapp_logs")
 }
 
@@ -2619,6 +2680,9 @@ model WhatsAppSession {
   apiStatus       String    @default("NOT_CONFIGURED")
   lastConnectedAt DateTime?
   lastCheckedAt   DateTime?
+  lastError       String?
+  reconnectAttempts Int     @default(0)
+  health          Json?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -2628,3 +2692,67 @@ model WhatsAppSession {
   @@map("whatsapp_sessions")
 }
 
+
+
+// ============================================================================
+// ACCESS CONTROL, QC AND CUSTOMER PORTAL
+// ============================================================================
+
+/// Sign-in / sign-out / lockout trail. Rows for unknown codes carry no user.
+model LoginEvent {
+  id        String         @id @default(cuid())
+  firmId    String?
+  userId    String?
+  user      User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  customerId String?
+  event     LoginEventType
+  ip        String?
+  userAgent String?
+  detail    String?
+  createdAt DateTime       @default(now())
+
+  @@index([firmId, createdAt])
+  @@index([userId, createdAt])
+  @@index([ip, event, createdAt])
+  @@map("login_events")
+}
+
+/// One QC inspection decision on a garment (history is append-only).
+model QCRecord {
+  id          String   @id @default(cuid())
+  firmId      String
+  firm        Firm     @relation(fields: [firmId], references: [id], onDelete: Restrict)
+  branchId    String?
+  orderId     String
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  garmentId   String
+  garment     Garment  @relation(fields: [garmentId], references: [id], onDelete: Cascade)
+  inspectorId String?
+  inspector   User?    @relation("QCInspector", fields: [inspectorId], references: [id], onDelete: SetNull)
+  result      QCResult
+  notes       String?
+  photoUrls   String[]
+  createdAt   DateTime @default(now())
+
+  @@index([firmId, result, createdAt])
+  @@index([garmentId])
+  @@index([orderId])
+  @@map("qc_records")
+}
+
+/// Short-lived WhatsApp/SMS one-time codes for the customer portal.
+model CustomerOtp {
+  id         String    @id @default(cuid())
+  firmId     String
+  customerId String
+  customer   Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  codeHash   String
+  expiresAt  DateTime
+  attempts   Int       @default(0)
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([customerId, createdAt])
+  @@index([firmId])
+  @@map("customer_otps")
+}

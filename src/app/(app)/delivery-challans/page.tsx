@@ -57,7 +57,7 @@ export default async function DeliveryChallansPage({
   const status = (param(params, "status") ?? "ALL") as ChallanStatus | "ALL";
   const paymentStatus = (param(params, "paymentStatus") ?? "ALL") as PaymentStatus | "ALL";
 
-  const branchId = session.role === "SUPER_ADMIN" ? undefined : session.branchId || undefined;
+  const branchId = session.role === "FIRM_MANAGER" ? undefined : session.branchId || undefined;
   const firmId = requireFirmId(session);
 
   const [{ challans, pagination }, stats] = await Promise.all([

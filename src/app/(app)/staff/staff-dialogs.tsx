@@ -82,7 +82,7 @@ export function NewStaffDialog({
     name: "",
     email: "",
     phone: "",
-    role: "SCANNER",
+    role: "FIELD_MANAGER",
     branchId: defaultBranchId ?? branches[0]?.value ?? "",
     department: "",
     designation: "",
