@@ -17,7 +17,7 @@ Legacy values were renamed in place by migration `20261109000000_five_role_model
 
 * 12 characters `XXXX-XXXX-XXXX` from a CSPRNG (≈60 bits), globally unique, shown once.
 * Stored only as `HMAC-SHA256(pepper, code)` (`users.accessCodeHash`); never returned by any API.
-* Legacy 6-digit codes keep working and are upgraded to hashes at next sign-in (or in bulk: `npm run db:harden-access-codes`).
+* Codes are 6 digits; older codes keep working and are upgraded to hashes at next sign-in (or in bulk: `npm run db:harden-access-codes`).
 * Regenerating invalidates the old code immediately; revoking blocks sign-in until a new code is issued.
 * Every request re-checks the user is ACTIVE, has an un-revoked code, has the same role and firm, and the firm is ACTIVE — deactivation / revocation / suspension cut live sessions.
 * Sign-in lockout: 8 failures per client address per 15 minutes (database-backed). Logins, failures, lockouts, logouts and code changes are in `login_events`.

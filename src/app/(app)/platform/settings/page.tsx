@@ -12,7 +12,7 @@ export default async function PlatformSettingsPage() {
   const rows: Array<[string, string]> = [
     ["WhatsApp gateway", process.env.OPENWA_BASE_URL || process.env.OPENWA_API_URL || "http://localhost:8080 (default)"],
     ["Gateway API key", process.env.OPENWA_API_KEY ? "configured" : "NOT configured"],
-    ["Access code format", "12 characters (XXXX-XXXX-XXXX), stored as an HMAC hash"],
+    ["Access code format", "6 digits, stored as an HMAC hash"],
     ["Sign-in lockout", `${MAX_FAILED_ATTEMPTS} failed attempts per ${LOCKOUT_WINDOW_MS / 60000} minutes per client`],
     ["Session lifetime", "12 hours"],
   ];

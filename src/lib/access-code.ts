@@ -12,13 +12,11 @@ type Db = Prisma.TransactionClient | typeof prisma;
  * firm). They are never stored: only HMAC-SHA256(pepper, code) is, and the
  * plaintext is shown to the issuer exactly once.
  *
- * Production codes are 12 characters from a 32-symbol alphabet (~60 bits of
- * CSPRNG entropy), formatted XXXX-XXXX-XXXX. They are not sequential or
- * derivable from anything. Legacy 6-digit codes issued before this change
- * keep working until regenerated (they are upgraded to hashes on first use).
+ * Codes are 6 random digits (CSPRNG, uniform, 000000-999999) — short enough to
+ * type at a counter. Because the space is small, security rests on the
+ * database-backed sign-in lockout (login-security.ts), not on code entropy.
  */
-const ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"; // 32 unambiguous symbols (no 0 O 1 I)
-const CODE_CHARS = 12;
+const CODE_DIGITS = 6;
 
 export function normalizeAccessCode(raw: string): string {
   return raw.replace(/[\s-]+/g, "").toUpperCase();
@@ -38,21 +36,12 @@ export function hashAccessCode(raw: string): string {
 }
 
 export function generateAccessCode(): string {
-  let out = "";
-  const max = 256 - (256 % ALPHABET.length); // rejection sampling: no modulo bias
-  while (out.length < CODE_CHARS) {
-    for (const byte of crypto.randomBytes(24)) {
-      if (byte >= max) continue;
-      out += ALPHABET[byte % ALPHABET.length];
-      if (out.length === CODE_CHARS) break;
-    }
-  }
-  return `${out.slice(0, 4)}-${out.slice(4, 8)}-${out.slice(8, 12)}`;
+  return String(crypto.randomInt(0, 10 ** CODE_DIGITS)).padStart(CODE_DIGITS, "0");
 }
 
 /** A fresh code plus its hash, guaranteed not to collide with any issued code. */
 export async function generateUniqueAccessCode(db: Db = prisma): Promise<{ code: string; hash: string }> {
-  for (let attempt = 0; attempt < 10; attempt += 1) {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
     const code = generateAccessCode();
     const hash = hashAccessCode(code);
     const clash = await db.user.findUnique({ where: { accessCodeHash: hash }, select: { id: true } });

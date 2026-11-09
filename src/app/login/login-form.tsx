@@ -56,13 +56,13 @@ export function LoginForm() {
             value={code}
             onChange={(event) => setCode(event.target.value.toUpperCase())}
             autoComplete="one-time-code"
-            autoCapitalize="characters"
+            inputMode="numeric"
             autoCorrect="off"
             spellCheck={false}
             autoFocus
             maxLength={24}
             aria-label="Access code"
-            placeholder="XXXX-XXXX-XXXX"
+            placeholder="000000"
             className={cn(
               "h-14 w-full rounded-xl border border-slate-200 bg-slate-50/50 text-center text-xl font-bold tracking-widest text-slate-900 shadow-sm transition-all",
               "focus:border-emerald-600 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30",
