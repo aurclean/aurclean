@@ -35,8 +35,16 @@ export function LiveRefresh({ intervalMs = 15_000 }: { intervalMs?: number }) {
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | null = null;
 
+    // Returning to a tab fires both `visibilitychange` and `focus`, and a
+    // mutation can broadcast at the same moment: collapse bursts into one
+    // refresh, since each one re-runs the whole server render.
+    let lastRefresh = 0;
     const refresh = () => {
-      if (document.visibilityState === "visible") router.refresh();
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - lastRefresh < 4000) return;
+      lastRefresh = now;
+      router.refresh();
     };
 
     const start = () => {
@@ -65,7 +73,7 @@ export function LiveRefresh({ intervalMs = 15_000 }: { intervalMs?: number }) {
     if ("BroadcastChannel" in window) {
       try {
         channel = new BroadcastChannel(CHANNEL);
-        channel.onmessage = () => router.refresh();
+        channel.onmessage = refresh;
       } catch {
         channel = null;
       }

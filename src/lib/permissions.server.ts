@@ -16,10 +16,17 @@ export async function resolvePermissions(
 ): Promise<PermissionCode[]> {
   const effective = new Set<PermissionCode>();
 
-  const rolePermissions = await prisma.rolePermission.findMany({
-    where: { role },
-    select: { permission: { select: { code: true } } },
-  });
+  // Independent reads: run them together rather than one round trip after the other.
+  const [rolePermissions, overrides] = await Promise.all([
+    prisma.rolePermission.findMany({
+      where: { role },
+      select: { permission: { select: { code: true } } },
+    }),
+    prisma.userPermission.findMany({
+      where: { userId },
+      select: { granted: true, permission: { select: { code: true } } },
+    }),
+  ]);
 
   if (rolePermissions.length > 0) {
     for (const rp of rolePermissions) {
@@ -28,11 +35,6 @@ export async function resolvePermissions(
   } else {
     for (const code of defaultPermissionsFor(role)) effective.add(code);
   }
-
-  const overrides = await prisma.userPermission.findMany({
-    where: { userId },
-    select: { granted: true, permission: { select: { code: true } } },
-  });
 
   for (const override of overrides) {
     const code = override.permission.code as PermissionCode;

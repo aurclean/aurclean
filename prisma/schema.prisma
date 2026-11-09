@@ -732,6 +732,7 @@ model AuditLog {
   @@index([userId])
   @@index([createdAt])
   @@index([firmId])
+  @@index([firmId, createdAt])
   @@map("audit_logs")
 }
 
@@ -1032,6 +1033,8 @@ model Order {
   @@index([paymentStatus])
   @@index([b2bAccountId])
   @@index([firmId])
+  @@index([firmId, branchId, status])
+  @@index([firmId, status, expectedDeliveryAt])
   @@index([firmId, placedAt])
   @@index([firmId, status])
   @@map("orders")
@@ -1143,6 +1146,8 @@ model Garment {
   @@index([garmentTypeId])
   @@index([branchId, trackingCategory, status])
   @@index([firmId])
+  @@index([firmId, status])
+  @@index([firmId, branchId, status])
   @@map("garments")
   qcRecords QCRecord[]
 }
@@ -1326,6 +1331,8 @@ model Invoice {
   @@index([b2bAccountId])
   @@index([status])
   @@index([firmId])
+  @@index([firmId, status])
+  @@index([firmId, issuedAt])
   @@index([firmId, customerId])
   @@map("invoices")
 }
@@ -1388,6 +1395,7 @@ model Payment {
   @@index([invoiceId])
   @@index([providerPaymentId])
   @@index([firmId])
+  @@index([firmId, paidAt])
   @@index([firmId, orderId])
   @@map("payments")
 }
@@ -1457,6 +1465,7 @@ model Pickup {
   @@index([driverId, scheduledAt])
   @@index([orderId])
   @@index([firmId])
+  @@index([firmId, status])
   @@map("pickups")
 }
 
@@ -1505,6 +1514,7 @@ model Delivery {
   @@index([driverId, scheduledAt])
   @@index([orderId])
   @@index([firmId])
+  @@index([firmId, status])
   @@map("deliveries")
 }
 
@@ -2061,6 +2071,7 @@ model Complaint {
   @@index([garmentId])
   @@index([createdAt])
   @@index([firmId])
+  @@index([firmId, status])
   @@map("complaints")
 }
 
@@ -2144,6 +2155,7 @@ model Notification {
   @@index([orderId])
   @@index([createdAt])
   @@index([firmId])
+  @@index([firmId, status, createdAt])
   @@map("notifications")
 }
 
@@ -2194,6 +2206,7 @@ model Expense {
   @@index([branchId, expenseDate])
   @@index([category])
   @@index([firmId])
+  @@index([firmId, expenseDate])
   @@map("expenses")
 }
 

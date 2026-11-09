@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { redirect } from "next/navigation";
 
 import { auth } from "@/auth";
@@ -46,7 +47,12 @@ export class AuthenticationError extends Error {
   }
 }
 
-export async function getCurrentUser(): Promise<SessionUser | null> {
+/**
+ * Memoised per request (React `cache`): the layout, the page and any helper
+ * that asks for the user within one render share a single auth() decode and a
+ * single database check instead of repeating them.
+ */
+export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
   const session = await auth();
   if (!session?.user?.id) return null;
 
@@ -57,17 +63,21 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
   // user, revoking a code, or suspending a firm therefore cuts access at once.
   const record = await prisma.user.findUnique({
     where: { id: session.user.id },
-    select: { status: true, role: true, firmId: true, accessCodeHash: true, accessCode: true },
+    select: {
+      status: true,
+      role: true,
+      firmId: true,
+      accessCodeHash: true,
+      accessCode: true,
+      // One round trip instead of two: the firm status rides along.
+      firm: { select: { status: true } },
+    },
   });
   if (!record || record.status !== "ACTIVE" || record.role === "CUSTOMER") return null;
   if (record.role !== session.user.role || (record.firmId ?? null) !== (session.user.firmId ?? null)) return null;
   if (!record.accessCodeHash && !record.accessCode) return null;
 
-  const firmId = record.firmId;
-  if (firmId) {
-    const firm = await prisma.firm.findUnique({ where: { id: firmId }, select: { status: true } });
-    if (!firm || firm.status !== "ACTIVE") return null;
-  }
+  if (record.firmId && (!record.firm || record.firm.status !== "ACTIVE")) return null;
 
   return {
     id: session.user.id,
@@ -85,7 +95,7 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
     activeFirmId: session.user.activeFirmId ?? null,
     activeFirmName: session.user.activeFirmName ?? null,
   };
-}
+});
 
 /** For pages: bounces to /login when there is no session. */
 export async function requireUser(): Promise<SessionUser> {

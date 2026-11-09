@@ -21,8 +21,25 @@ const createPrismaClient = (): PrismaClient => {
     connectionString,
     ssl: needsSsl ? { rejectUnauthorized: false } : undefined,
     max: isProduction ? 10 : 5,
-    idleTimeoutMillis: 30000,
+    // A new TLS connection to a remote database costs 0.5-1.6s, so idle ones
+    // are kept rather than closed after a few seconds. But the database side
+    // drops connections that sit idle for roughly 2-3 minutes (measured), and a
+    // query sent down a dead connection hangs until it errors — so retire ours
+    // well before that. TCP keepalive stops intermediaries dropping them early.
+    idleTimeoutMillis: 90 * 1000,
+    keepAlive: true,
     connectionTimeoutMillis: 10000,
+    // A query that hangs must fail, not leave a page loading forever. Pages
+    // that hit these show their error/retry state instead of an endless spinner.
+    // (client-side only: a server-side statement_timeout is sent as a startup
+    // parameter, which pooled endpoints such as Neon's PgBouncer reject.)
+    query_timeout: 25000,
+  });
+
+  // An idle pooled client can be reset by the server; without a listener the
+  // 'error' event is unhandled and can take the whole process down.
+  pool.on("error", (error) => {
+    console.error("[db] idle client error (connection will be replaced):", error.message);
   });
 
   return new PrismaClient({

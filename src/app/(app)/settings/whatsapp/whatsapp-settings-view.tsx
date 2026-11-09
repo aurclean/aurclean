@@ -147,24 +147,51 @@ export function WhatsAppSettingsView({ firmName, initialStatusData, templates: i
 
     if (!shouldPoll) return;
 
-    const interval = setInterval(async () => {
+    // One request at a time (a slow gateway can never stack up overlapping
+    // polls), each with its own timeout, paused while the tab is hidden, and
+    // backing off after failures so an unreachable gateway is not hammered.
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let failures = 0;
+
+    const schedule = () => {
+      if (cancelled) return;
+      const delay = Math.min(2500 * 2 ** failures, 15000);
+      timer = setTimeout(poll, delay);
+    };
+
+    const poll = async () => {
+      if (cancelled) return;
+      if (document.visibilityState !== "visible") return schedule();
+      const controller = new AbortController();
+      const abort = setTimeout(() => controller.abort(), 8000);
       try {
-        const res = await fetch("/api/whatsapp/status?refresh=true");
+        const res = await fetch("/api/whatsapp/status?refresh=true", { signal: controller.signal });
         if (res.ok) {
           const json: WhatsAppStatusResponse = await res.json();
-          if (json && json.success) {
+          failures = 0;
+          if (!cancelled && json && json.success) {
             setStatusData(json);
             if (json.status === "ready") {
               toast.success(`WhatsApp Connected! Linked to ${json.phoneNumber || "number unavailable"}`);
             }
           }
+        } else {
+          failures = Math.min(failures + 1, 3);
         }
-      } catch (err) {
-        console.warn("Status poll error:", err);
+      } catch {
+        failures = Math.min(failures + 1, 3);
+      } finally {
+        clearTimeout(abort);
+        schedule();
       }
-    }, 2500);
+    };
 
-    return () => clearInterval(interval);
+    schedule();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [statusData.status]);
 
   const handleConnect = () => {
@@ -222,7 +249,7 @@ export function WhatsAppSettingsView({ firmName, initialStatusData, templates: i
   const handleTestConnection = () => {
     startTransition(async () => {
       try {
-        const res = await fetch("/api/whatsapp/status?refresh=true");
+        const res = await fetch("/api/whatsapp/status?refresh=true", { signal: AbortSignal.timeout(10000) });
         if (res.ok) {
           const json: WhatsAppStatusResponse = await res.json();
           setStatusData(json);

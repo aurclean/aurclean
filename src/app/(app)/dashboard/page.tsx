@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Suspense, type ReactNode } from "react";
 import {
   AlertTriangle,
   Banknote,
@@ -48,6 +49,8 @@ import { getFinancialOverview } from "@/lib/services/accounting";
 import { detectMismatches } from "@/lib/services/garment-tracking";
 import { PERMISSIONS } from "@/lib/rbac";
 import { hasPermission, requirePermissionInFirm } from "@/lib/session";
+import { Skeleton } from "@/components/ui/skeleton";
+import { SectionError } from "@/components/shared/section-error";
 import { ORDER_STATUS_LABELS } from "@/lib/workflow";
 import {
   branchOptions,
@@ -59,6 +62,44 @@ import {
 import type { OrderStatus } from "@/generated/prisma/enums";
 
 export const metadata = { title: "Dashboard" };
+
+/** A secondary section gives up after this long and offers a retry instead. */
+const SECTION_TIMEOUT_MS = 20_000;
+
+/**
+ * Starts a secondary query with a ceiling on how long the page will wait for
+ * it. The rejection is parked so an un-rendered section can never surface as
+ * an unhandled rejection; <Loaded> still sees it and shows the retry card.
+ */
+function section<T>(work: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error("timed out")), SECTION_TIMEOUT_MS);
+  });
+  const guarded = Promise.race([work, timeout]).finally(() => clearTimeout(timer));
+  guarded.catch(() => undefined);
+  return guarded;
+}
+
+/** Awaits one streamed section; on failure renders a contained error card. */
+async function Loaded<T>({
+  promise,
+  title,
+  children,
+}: {
+  promise: Promise<T>;
+  title: string;
+  children: (data: T) => ReactNode;
+}) {
+  let data: T;
+  try {
+    data = await promise;
+  } catch (error) {
+    console.error(`[dashboard] "${title}" failed:`, error);
+    return <SectionError title={title} />;
+  }
+  return <>{children(data)}</>;
+}
 
 export default async function DashboardPage({
   searchParams,
@@ -91,25 +132,9 @@ export default async function DashboardPage({
     PERMISSIONS.DASHBOARD_VIEW_ALL_BRANCHES,
   );
 
-  const [
-    metrics,
-    series,
-    statusBreakdown,
-    services,
-    pipeline,
-    delivery,
-    branches,
-    serviceOptions,
-    recentOrders,
-    branchStats,
-    mismatchFindings,
-    financialOverview,
-  ] = await Promise.all([
+  // Tier 1 — what the counter needs to see first. Awaited, in parallel.
+  const [metrics, delivery, branches, serviceOptions, recentOrders] = await Promise.all([
     dashboardMetrics(filters),
-    revenueSeries(filters),
-    orderStatusBreakdown(filters),
-    servicePerformance(filters),
-    stagePipeline(firmId, branchId),
     deliveryMetrics(filters),
     branchOptions(user),
     prisma.service.findMany({
@@ -135,12 +160,19 @@ export default async function DashboardPage({
         outstandingAmount: true,
       },
     }),
-    canSeeAllBranches ? branchPerformance(firmId, range) : Promise.resolve([]),
-    detectMismatches({ firmId, branchIds: branchId ? [branchId] : null }),
-    canSeeMoney ? getFinancialOverview(firmId, branchId) : Promise.resolve(null),
   ]);
 
-  const mismatchCount = mismatchFindings.length;
+  // Tier 2 — analytics. Started now so they overlap with each other, but NOT
+  // awaited here: each section streams in behind its own skeleton (and shows
+  // its own retry card on failure or timeout) instead of holding up the page.
+  const mismatchP = section(detectMismatches({ firmId, branchIds: branchId ? [branchId] : null }));
+  const financialP = section(canSeeMoney ? getFinancialOverview(firmId, branchId) : Promise.resolve(null));
+  const chartsP = section(
+    Promise.all([revenueSeries(filters), stagePipeline(firmId, branchId), orderStatusBreakdown(filters)]),
+  );
+  const servicesP = section(servicePerformance(filters));
+  const branchStatsP = section(canSeeAllBranches ? branchPerformance(firmId, range) : Promise.resolve([]));
+
 
   const now = new Date();
 
@@ -154,7 +186,7 @@ export default async function DashboardPage({
 
   return (
     <div className="space-y-5">
-      <LiveRefresh intervalMs={20000} />
+      <LiveRefresh intervalMs={60000} />
       
       {/* AURCLEAN ERP Branded Welcome Banner */}
       <div className="relative overflow-hidden rounded-2xl bg-primary p-5 text-primary-foreground shadow-sm">
@@ -292,6 +324,11 @@ export default async function DashboardPage({
           tone={metrics.openComplaints > 0 ? "warning" : "default"}
           href="/complaints?status=OPEN"
         />
+        <Suspense fallback={<Skeleton className="h-24 w-full rounded-xl" />}>
+          <Loaded promise={mismatchP} title="Mismatches">
+            {(mismatchFindings) => {
+              const mismatchCount = mismatchFindings.length;
+              return (
         <StatCard
           label="Mismatches"
           value={mismatchCount}
@@ -299,9 +336,17 @@ export default async function DashboardPage({
           tone={mismatchCount > 0 ? "danger" : "default"}
           href="/mismatch"
         />
+              );
+            }}
+          </Loaded>
+        </Suspense>
       </section>
 
-      {canSeeMoney && financialOverview ? (
+      {canSeeMoney ? (
+        <Suspense fallback={<Skeleton className="h-40 w-full rounded-xl" />}>
+          <Loaded promise={financialP} title="Financial overview">
+            {(financialOverview) =>
+              financialOverview ? (
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -373,8 +418,16 @@ export default async function DashboardPage({
             />
           </section>
         </div>
+              ) : null
+            }
+          </Loaded>
+        </Suspense>
       ) : null}
 
+      <Suspense fallback={<Skeleton className="h-80 w-full rounded-xl" />}>
+        <Loaded promise={chartsP} title="Charts">
+          {([series, pipeline, statusBreakdown]) => (
+            <>
       {canSeeMoney ? (
         <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <RevenueChart data={series} />
@@ -396,8 +449,15 @@ export default async function DashboardPage({
           valueLabel="Orders"
         />
       </section>
+            </>
+          )}
+        </Loaded>
+      </Suspense>
 
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Suspense fallback={<Skeleton className="h-80 w-full rounded-xl" />}>
+          <Loaded promise={servicesP} title="Service performance">
+            {(services) => (
         <CategoryBarChart
           title="Service performance"
           description={canSeeMoney ? "Revenue by service" : "Pieces by service"}
@@ -414,6 +474,9 @@ export default async function DashboardPage({
           valueLabel={canSeeMoney ? "Revenue" : "Pieces"}
           format={canSeeMoney ? "currency" : "number"}
         />
+            )}
+          </Loaded>
+        </Suspense>
 
         <Card>
           <CardHeader>
@@ -508,7 +571,11 @@ export default async function DashboardPage({
           </CardContent>
         </Card>
 
-        {canSeeAllBranches && branchStats.length > 0 ? (
+        {canSeeAllBranches ? (
+          <Suspense fallback={<Skeleton className="h-64 w-full rounded-xl" />}>
+            <Loaded promise={branchStatsP} title="Branch performance">
+              {(branchStats) =>
+                branchStats.length > 0 ? (
           <Card>
             <CardHeader>
               <CardTitle className="text-sm">Branch performance</CardTitle>
@@ -554,6 +621,10 @@ export default async function DashboardPage({
               </table>
             </CardContent>
           </Card>
+                ) : null
+              }
+            </Loaded>
+          </Suspense>
         ) : null}
       </section>
     </div>

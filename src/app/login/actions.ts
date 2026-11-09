@@ -33,8 +33,11 @@ export async function loginAction(_prev: LoginState, formData: FormData): Promis
   const { accessCode, callbackUrl } = parsed.data;
   const ip = clientIp(await headers());
 
-  const before = await lockoutFor(ip);
-  if (before.locked) return { ok: false, error: lockedMessage(before.retryAfterMs) };
+  // The lockout check happens inside authorize() (and is re-read below on
+  // failure), so it is not repeated here. The landing-page lookup is read-only
+  // and independent of sign-in, so it runs alongside it.
+  const userLookup = peekUserByCode(accessCode);
+  userLookup.catch(() => undefined);
 
   try {
     await signIn("credentials", { accessCode, redirect: false });
@@ -51,7 +54,7 @@ export async function loginAction(_prev: LoginState, formData: FormData): Promis
     return { ok: false, error: "Sign-in is temporarily unavailable. Please try again." };
   }
 
-  const user = await peekUserByCode(accessCode);
+  const user = await userLookup;
   const landing = user ? ROLE_LANDING_PATH[user.role] : "/dashboard";
   // Only the platform and firm-manager landing areas honour a deep link;
   // field/QC staff always start on their own simple home screen.

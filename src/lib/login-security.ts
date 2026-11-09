@@ -122,11 +122,14 @@ export async function authenticateAccessCode(
   if (user.lockedUntil && user.lockedUntil.getTime() > Date.now()) return reject("account locked");
   if (user.firm && user.firm.status !== "ACTIVE") return reject(`firm ${user.firm.status.toLowerCase()}`);
 
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { lastLoginAt: new Date(), failedLoginCount: 0, lockedUntil: null },
-  });
-  await logLoginEvent({ event: "LOGIN_SUCCESS", firmId: user.firmId, userId: user.id, ip: ctx.ip, userAgent: ctx.userAgent });
+  // Independent writes: issue together.
+  await Promise.all([
+    prisma.user.update({
+      where: { id: user.id },
+      data: { lastLoginAt: new Date(), failedLoginCount: 0, lockedUntil: null },
+    }),
+    logLoginEvent({ event: "LOGIN_SUCCESS", firmId: user.firmId, userId: user.id, ip: ctx.ip, userAgent: ctx.userAgent }),
+  ]);
 
   return user;
 }

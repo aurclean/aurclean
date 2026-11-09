@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { Suspense, use, useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   Bell,
@@ -44,6 +44,25 @@ const KIND_LABELS: Record<AlertKind, string> = {
  * it is about, so an alert is a way into the work rather than a message to be
  * dismissed — and it stops appearing on its own once the problem is fixed.
  */
+/** Renders a plain bell immediately, then the real feed once its promise settles. */
+export function StreamedNotificationBell({ feed }: { feed: Promise<{ alerts: Alert[]; total: number }> }) {
+  return (
+    <Suspense
+      fallback={
+        <Button variant="ghost" size="icon" aria-label="Notifications" disabled>
+          <Bell />
+        </Button>
+      }
+    >
+      <ResolvedBell feed={feed} />
+    </Suspense>
+  );
+}
+
+function ResolvedBell({ feed }: { feed: Promise<{ alerts: Alert[]; total: number }> }) {
+  return <NotificationBell feed={use(feed)} />;
+}
+
 export function NotificationBell({ feed }: { feed: { alerts: Alert[]; total: number } }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);

@@ -5,7 +5,7 @@ import { Menu, ScanLine } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { GlobalSearch } from "@/components/layout/global-search";
-import { NotificationBell } from "@/components/layout/notification-bell";
+import { StreamedNotificationBell } from "@/components/layout/notification-bell";
 import { UserMenu } from "@/components/layout/user-menu";
 import type { Alert } from "@/lib/services/alerts";
 import type { UserRole } from "@/generated/prisma/enums";
@@ -17,7 +17,7 @@ interface TopbarProps {
   email: string;
   role: UserRole;
   branchName: string | null;
-  alerts: { alerts: Alert[]; total: number };
+  alerts: Promise<{ alerts: Alert[]; total: number }>;
   canScan: boolean;
   onOpenSidebar: () => void;
 }
@@ -61,7 +61,7 @@ export function Topbar({
         </Button>
       ) : null}
 
-      <NotificationBell feed={alerts} />
+      <StreamedNotificationBell feed={alerts} />
 
       <UserMenu name={name} email={email} role={role} branchName={branchName} />
     </header>

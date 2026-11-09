@@ -20,7 +20,7 @@ interface AppShellProps {
   };
   /** True for a PLATFORM_ADMIN who hasn't entered a firm yet — restricts the sidebar to the Firms module. */
   platformOnly?: boolean;
-  alerts: { alerts: Alert[]; total: number };
+  alerts: Promise<{ alerts: Alert[]; total: number }>;
   children: ReactNode;
 }
 

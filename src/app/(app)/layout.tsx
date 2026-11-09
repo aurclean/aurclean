@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 
 import { AppShell } from "@/components/layout/app-shell";
-import { getAlerts } from "@/lib/services/alerts";
+import { getAlerts, type Alert } from "@/lib/services/alerts";
 import { requireUser } from "@/lib/session";
 import { LeaveFirmButton } from "@/app/(app)/firms/enter-firm-button";
 
@@ -19,7 +19,25 @@ const ROLE_PATHS: Partial<Record<string, string[]>> = {
   QC: ["/qc", "/profile", "/scan", "/garments", "/processing", "/tracking"],
 };
 
-const EMPTY_ALERTS = { alerts: [], total: 0 };
+type AlertsFeed = { alerts: Alert[]; total: number };
+const EMPTY_ALERTS: AlertsFeed = { alerts: [], total: 0 };
+
+/** The bell is secondary: never let a slow or failing alert query hold up the page. */
+const ALERTS_TIMEOUT_MS = 6000;
+
+function streamAlerts(user: Awaited<ReturnType<typeof requireUser>>): Promise<AlertsFeed> {
+  const feed = getAlerts(user).then(
+    (f) => ({ alerts: f.alerts, total: f.total }),
+    (error) => {
+      console.error("[alerts] failed to load:", error);
+      return EMPTY_ALERTS;
+    },
+  );
+  const timeout = new Promise<AlertsFeed>((resolve) =>
+    setTimeout(() => resolve(EMPTY_ALERTS), ALERTS_TIMEOUT_MS).unref?.(),
+  );
+  return Promise.race([feed, timeout]);
+}
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const user = await requireUser();
@@ -42,7 +60,8 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
       redirect(user.role === "QC" ? "/qc" : "/field");
     }
   }
-  const alerts = user.activeFirmId ? await getAlerts(user) : EMPTY_ALERTS;
+  // Not awaited: the shell and page render now; the bell fills in when ready.
+  const alerts = user.activeFirmId ? streamAlerts(user) : Promise.resolve(EMPTY_ALERTS);
 
   return (
     <AppShell
@@ -54,7 +73,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         permissions: user.permissions,
       }}
       platformOnly={platformOnly}
-      alerts={{ alerts: alerts.alerts, total: alerts.total }}
+      alerts={alerts}
     >
       {user.role === "PLATFORM_SUPER_ADMIN" && user.activeFirmId ? (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm">
