@@ -113,7 +113,7 @@ export default async function ComplaintsPage({
         where: {
           firmId,
           status: "ACTIVE",
-          role: { in: ["SUPER_ADMIN", "MANAGER"] },
+          role: { in: ["FIRM_MANAGER"] },
           ...(branchId ? { branchId } : {}),
         },
         select: { id: true, name: true },

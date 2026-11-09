@@ -15,6 +15,7 @@ import {
 import { DataTable, type Column } from "@/components/shared/data-table";
 import { EmptyState } from "@/components/shared/empty-state";
 import { PageHeader } from "@/components/shared/page-header";
+import { PortalLinkButton } from "@/app/(app)/customers/portal-link-button";
 import { StatCard } from "@/components/shared/stat-card";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Badge } from "@/components/ui/badge";
@@ -136,6 +137,7 @@ export default async function CustomerProfilePage({
                 <ArrowLeft />
               </Link>
             </Button>
+            {hasPermission(user, PERMISSIONS.CUSTOMER_MANAGE) ? <PortalLinkButton customerId={customer.id} /> : null}
             <DocumentActionBar
               documentType="STATEMENT"
               documentId={customer.id}

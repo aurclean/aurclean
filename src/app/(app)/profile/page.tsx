@@ -2,7 +2,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/shared/page-header";
-import { AccessCodeCard } from "@/app/(app)/profile/access-code-card";
 import { prisma } from "@/lib/prisma";
 import { formatDateTime } from "@/lib/dates";
 import { ROLE_LABELS, PERMISSION_DESCRIPTIONS } from "@/lib/rbac";
@@ -64,14 +63,17 @@ export default async function ProfilePage() {
           <CardHeader>
             <CardTitle>Your access code</CardTitle>
             <CardDescription>
-              Enter this on the sign-in screen. Keep it to yourself — anyone with it can
+              Use it on the sign-in screen. Keep it to yourself — anyone with it can
               sign in as you.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <AccessCodeCard accessCode={record?.accessCode ?? ""} />
+            <p className="text-sm">
+              Issued {record?.accessCodeIssuedAt ? formatDateTime(record.accessCodeIssuedAt) : "before codes were tracked"}.
+            </p>
             <p className="mt-3 text-xs text-muted-foreground">
-              Need a new code? Ask a Super Admin to regenerate it from Staff.
+              Your code is stored only as a secure hash and cannot be shown again. If you lose it,
+              ask your Firm Manager to issue a new one.
             </p>
           </CardContent>
         </Card>

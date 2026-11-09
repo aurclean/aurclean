@@ -22,10 +22,12 @@ sanitizeUrlEnv("AUTH_URL");
 sanitizeUrlEnv("VERCEL_URL");
 
 export const authConfig = {
+  // No hardcoded fallback in production: sessions signed with a publicly
+  // known secret could be forged. Development gets a local-only default.
   secret:
     process.env.AUTH_SECRET ??
     process.env.NEXTAUTH_SECRET ??
-    "aurclean_production_fallback_secret_key_change_me",
+    (process.env.NODE_ENV === "production" ? undefined : "dev-only-auth-secret-not-for-production"),
   pages: {
     signIn: "/login",
     error: "/login",

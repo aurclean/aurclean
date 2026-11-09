@@ -224,3 +224,48 @@ export async function findCustomersAction(payload: unknown) {
     });
   });
 }
+
+/**
+ * Issues a fresh customer-specific access link (30 days) and optionally sends
+ * it through THIS firm's own WhatsApp. The firm comes from the session; the
+ * customer is verified to belong to it. The raw link exists only in the result.
+ */
+export async function createPortalLinkAction(
+  payload: unknown,
+): Promise<ActionResult<{ url: string; sent: boolean; sendError?: string }>> {
+  return runAction(async () => {
+    const user = await authorize(PERMISSIONS.CUSTOMER_MANAGE);
+    const { customerId, send } = z.object({ customerId: cuidSchema, send: z.boolean().default(false) }).parse(payload);
+    const firmId = requireFirmId(user);
+
+    const customer = await prisma.customer.findFirst({ where: { id: customerId, firmId }, select: { id: true, name: true, phone: true } });
+    if (!customer) throw new NotFoundError("Customer not found");
+
+    const { issuePortalLink } = await import("@/lib/customer-auth");
+    const token = await issuePortalLink(customer.id, firmId);
+    const base = (process.env.NEXTAUTH_URL || process.env.AUTH_URL || "").replace(/\/$/, "");
+    const url = `${base}/portal/link/${token}`;
+
+    let sent = false;
+    let sendError: string | undefined;
+    if (send) {
+      try {
+        const { sendWhatsAppMessage } = await import("@/lib/services/whatsapp");
+        await sendWhatsAppMessage({
+          firmId,
+          phone: customer.phone,
+          messageType: "CUSTOM",
+          messageText: `Hi ${customer.name}, track your laundry orders here: ${url}`,
+          customerId: customer.id,
+          sentByUserId: user.id,
+        });
+        sent = true;
+      } catch (error) {
+        sendError = error instanceof Error ? error.message.replace(/\s*\[FALLBACK_URL:[^\]]*\]/, "") : "Could not send";
+      }
+    }
+
+    await recordAudit({ userId: user.id, firmId, action: "CUSTOMER_PORTAL_LINK_ISSUED", entity: "Customer", entityId: customer.id, summary: `Portal link issued for ${customer.name}` });
+    return { url, sent, sendError };
+  });
+}

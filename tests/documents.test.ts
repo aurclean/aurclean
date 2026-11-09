@@ -128,8 +128,8 @@ async function makeFirm(tag: string, opts: { name: string; branch: string; gstin
       totalAmount: opts.gstin ? 266.09 : 225.5,
       items: {
         create: [
-          { serviceId: svc.id, garmentTypeId: gt2.id, quantity: 4, unitPrice: 25, lineTotal: 100 },
-          { serviceId: svc.id, garmentTypeId: gt.id, quantity: 5, unitPrice: 25.1, lineTotal: 125.5 },
+          { firmId, serviceId: svc.id, garmentTypeId: gt2.id, quantity: 4, unitPrice: 25, lineTotal: 100 },
+          { firmId, serviceId: svc.id, garmentTypeId: gt.id, quantity: 5, unitPrice: 25.1, lineTotal: 125.5 },
         ],
       },
     },
@@ -465,6 +465,7 @@ test("invoice: 12 items stay on one page; 60 items paginate with repeated header
         expectedDeliveryAt: new Date(),
         items: {
           create: Array.from({ length: count }, (_, i) => ({
+            firmId: fx.firmId,
             serviceId: svc.id,
             garmentTypeId: gt.id,
             quantity: 1,

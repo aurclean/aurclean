@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
  */
 export async function GET() {
   try {
-    const user = await requirePermission(PERMISSIONS.SETTINGS_MANAGE);
+    const user = await requirePermission(PERMISSIONS.WHATSAPP_MANAGE);
     const health = await getWhatsAppStatus(requireFirmId(user), { forceRefresh: true });
     const status = health.erpOk && health.openWaOk ? 200 : 503;
     return NextResponse.json(health, { status });

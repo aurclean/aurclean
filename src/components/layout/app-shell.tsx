@@ -55,10 +55,7 @@ export function AppShell({ user, platformOnly, alerts, children }: AppShellProps
             {children}
           </div>
         </main>
-        <BottomNav
-          onOpenSidebar={() => setSidebarOpen(true)}
-          canScan={canScan}
-        />
+        <BottomNav role={user.role} platformOnly={platformOnly} onOpenSidebar={() => setSidebarOpen(true)} />
       </div>
     </div>
   );

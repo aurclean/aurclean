@@ -18,7 +18,11 @@
     "db:studio": "prisma studio",
     "whatsapp:server": "node scripts/openwa-server.mjs",
     "postinstall": "prisma generate",
-    "test:documents": "node --conditions react-server --import tsx --test tests/documents.test.ts"
+    "test:documents": "node --conditions react-server --import tsx --test tests/documents.test.ts",
+    "db:harden-access-codes": "node --conditions react-server --import tsx scripts/harden-access-codes.ts",
+    "test:multifirm": "node --conditions react-server --import tsx --test --test-concurrency=1 tests/multifirm.e2e.test.ts",
+    "test:whatsapp": "node --conditions react-server --import tsx --test --test-concurrency=1 tests/whatsapp.routing.test.ts",
+    "platform:create-admin": "node --conditions react-server --import tsx scripts/create-platform-admin.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

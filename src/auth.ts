@@ -5,7 +5,10 @@ import { z } from "zod";
 import { authConfig } from "@/auth.config";
 import { prisma } from "@/lib/prisma";
 import { resolvePermissions } from "@/lib/permissions.server";
+import { authenticateAccessCode, clientIp, logLoginEvent } from "@/lib/login-security";
 import { isPlatformRole } from "@/lib/rbac";
+import { recordAudit } from "@/lib/audit";
+import { verifyCustomerOtp, verifyCustomerToken } from "@/lib/customer-auth";
 import type { PermissionCode } from "@/lib/rbac";
 import type { UserRole } from "@/generated/prisma/enums";
 
@@ -13,39 +16,64 @@ const credentialsSchema = z.object({
   accessCode: z.string().trim().min(1),
 });
 
+const customerSchema = z.object({
+  mode: z.enum(["otp", "token"]),
+  firmCode: z.string().trim().optional(),
+  phone: z.string().trim().optional(),
+  code: z.string().trim().optional(),
+  token: z.string().trim().optional(),
+});
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
   providers: [
+    Credentials({
+      id: "customer",
+      name: "customer",
+      credentials: {},
+      async authorize(raw, request) {
+        const parsed = customerSchema.safeParse(raw);
+        if (!parsed.success) return null;
+        const ip = clientIp(request.headers);
+        const { mode, firmCode, phone, code, token } = parsed.data;
+        const identity =
+          mode === "token"
+            ? token ? await verifyCustomerToken(token, ip) : null
+            : firmCode && phone && code ? await verifyCustomerOtp({ firmCode, phone, code, ip }) : null;
+        if (!identity) return null;
+        return {
+          // Namespaced so a customer session can never be mistaken for a staff user id.
+          id: `customer:${identity.customerId}`,
+          name: identity.name,
+          email: null,
+          role: "CUSTOMER" as const,
+          customerId: identity.customerId,
+          branchId: null,
+          permissions: [],
+          firmId: identity.firmId,
+          firmName: identity.firmName,
+          activeFirmId: identity.firmId,
+          activeFirmName: identity.firmName,
+        };
+      },
+    }),
     Credentials({
       name: "credentials",
       credentials: {
         accessCode: { label: "Access code", type: "text" },
       },
-      async authorize(raw) {
+      async authorize(raw, request) {
         try {
           const parsed = credentialsSchema.safeParse(raw);
           if (!parsed.success) return null;
 
-          const user = await prisma.user.findUnique({
-            where: { accessCode: parsed.data.accessCode },
-            include: {
-              branch: { select: { id: true, name: true, code: true } },
-              firm: { select: { id: true, name: true, status: true } },
-            },
+          const user = await authenticateAccessCode(parsed.data.accessCode, {
+            ip: clientIp(request.headers),
+            userAgent: request.headers.get("user-agent"),
           });
-
-          if (!user || user.status !== "ACTIVE") return null;
-
-          // A firm's users cannot sign in while their firm is deactivated —
-          // existing data stays intact, but no session can be created.
-          if (user.firm && user.firm.status !== "ACTIVE") return null;
+          if (!user) return null;
 
           const permissions = await resolvePermissions(user.id, user.role);
-
-          await prisma.user.update({
-            where: { id: user.id },
-            data: { lastLoginAt: new Date() },
-          });
 
           return {
             id: user.id,
@@ -60,9 +88,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             permissions,
             firmId: user.firmId,
             firmName: user.firm?.name ?? null,
-            // A regular firm user's active firm is always their own, fixed
-            // firm — never switchable. A PLATFORM_ADMIN starts with none
-            // active until they explicitly enter one from the Firms module.
+            // A firm user's active firm is always their own, fixed firm. A
+            // PLATFORM_SUPER_ADMIN starts with none and must explicitly enter
+            // one from the platform dashboard.
             activeFirmId: isPlatformRole(user.role) ? null : user.firmId,
             activeFirmName: isPlatformRole(user.role) ? null : (user.firm?.name ?? null),
           };
@@ -73,6 +101,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       },
     }),
   ],
+  events: {
+    async signOut(message) {
+      const token = "token" in message ? message.token : null;
+      if (token?.id) {
+        await logLoginEvent({
+          event: "LOGOUT",
+          userId: token.id as string,
+          firmId: (token.firmId as string | null) ?? null,
+        });
+      }
+    },
+  },
   callbacks: {
     ...authConfig.callbacks,
     async jwt({ token, user, trigger, session: updateData }) {
@@ -88,13 +128,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.firmName = user.firmName;
         token.activeFirmId = user.activeFirmId;
         token.activeFirmName = user.activeFirmName;
+        token.customerId = (user as { customerId?: string }).customerId ?? null;
       }
 
       // Re-read role/branch/permissions when the client explicitly asks for a
       // refresh (e.g. after an admin changes this user's access), and handle
-      // the Firms-module "enter firm" switch (PLATFORM_ADMIN only — a
+      // the Firms-module "enter firm" switch (PLATFORM_SUPER_ADMIN only — a
       // regular firm user's token.firmId never changes here).
-      if (trigger === "update" && token.id) {
+      if (trigger === "update" && token.id && token.role !== "CUSTOMER") {
         const fresh = await prisma.user.findUnique({
           where: { id: token.id as string },
           include: {
@@ -128,6 +169,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             if (targetFirm && targetFirm.status === "ACTIVE") {
               token.activeFirmId = targetFirm.id;
               token.activeFirmName = targetFirm.name;
+              await recordAudit({
+                userId: token.id as string,
+                firmId: targetFirm.id,
+                action: "PLATFORM_ENTER_FIRM",
+                entity: "Firm",
+                entityId: targetFirm.id,
+                summary: `Platform Super Admin entered ${targetFirm.name}`,
+              }).catch(() => {});
             }
           }
         }
@@ -148,6 +197,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         session.user.firmName = (token.firmName as string | null) ?? null;
         session.user.activeFirmId = (token.activeFirmId as string | null) ?? null;
         session.user.activeFirmName = (token.activeFirmName as string | null) ?? null;
+        session.user.customerId = (token.customerId as string | null) ?? null;
       }
       return session;
     },

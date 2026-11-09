@@ -32,7 +32,7 @@ export default function LoginPage() {
         </Suspense>
 
         <p className="text-center text-xs text-emerald-300/60">
-          Lost your code? Ask a Super Admin to look it up in Staff.
+          Lost your code? Ask your Firm Manager to issue a new one.
         </p>
       </div>
     </div>

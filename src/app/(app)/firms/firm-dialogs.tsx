@@ -21,6 +21,7 @@ import {
   createFirmAction,
   resetFirmAdminAccessCodeAction,
   setFirmStatusAction,
+  revokeFirmAdminAccessCodeAction,
   updateFirmAction,
 } from "@/app/(app)/firms/actions";
 import type { FieldErrors } from "@/lib/action-result";
@@ -38,10 +39,28 @@ const EMPTY_FORM = {
   gstin: "",
   pan: "",
   website: "",
+  logoUrl: "",
+  currency: "INR",
+  invoicePrefix: "INV",
+  challanPrefix: "DC",
+  branchName: "",
+  branchPhone: "",
   adminName: "",
   adminEmail: "",
   adminPhone: "",
 };
+
+/** Reads a PNG/JPEG (≤ 600 KB) into a data URI that is stored with the firm's settings. */
+function readLogo(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (!/^image\/(png|jpeg)$/.test(file.type)) return reject(new Error("Logo must be a PNG or JPEG image"));
+    if (file.size > 600 * 1024) return reject(new Error("Logo must be smaller than 600 KB"));
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Could not read the logo file"));
+    reader.readAsDataURL(file);
+  });
+}
 
 /** Shown exactly once, right after a firm is created — the temporary access
  *  code is never stored in plaintext or retrievable again after this. */
@@ -115,7 +134,7 @@ export function CreateFirmDialog() {
           <DialogHeader>
             <DialogTitle>Add a firm</DialogTitle>
             <DialogDescription>
-              Creates a fully isolated tenant with its own Primary Admin — one that will
+              Creates a fully isolated firm with its own Firm Manager — one that will
               never see or modify any other firm's data.
             </DialogDescription>
           </DialogHeader>
@@ -164,10 +183,38 @@ export function CreateFirmDialog() {
               <FormField label="Address" className="sm:col-span-2" error={fieldErrors.addressLine}>
                 <Input value={form.addressLine} onChange={(event) => set({ addressLine: event.target.value })} />
               </FormField>
+              <FormField label="Logo (PNG/JPEG)" className="sm:col-span-2" error={fieldErrors.logoUrl}>
+                <Input
+                  type="file"
+                  accept="image/png,image/jpeg"
+                  onChange={async (event) => {
+                    const file = event.target.files?.[0];
+                    if (!file) return set({ logoUrl: "" });
+                    try {
+                      set({ logoUrl: await readLogo(file) });
+                    } catch (err) {
+                      toast.error(err instanceof Error ? err.message : "Invalid logo");
+                      event.target.value = "";
+                    }
+                  }}
+                />
+              </FormField>
+              <FormField label="Currency" error={fieldErrors.currency}>
+                <Input value={form.currency} maxLength={3} onChange={(event) => set({ currency: event.target.value.toUpperCase() })} className="font-mono" />
+              </FormField>
+              <FormField label="First branch name" error={fieldErrors.branchName} hint="Defaults to the firm name">
+                <Input value={form.branchName} onChange={(event) => set({ branchName: event.target.value })} />
+              </FormField>
+              <FormField label="Invoice prefix" error={fieldErrors.invoicePrefix}>
+                <Input value={form.invoicePrefix} maxLength={8} onChange={(event) => set({ invoicePrefix: event.target.value.toUpperCase() })} className="font-mono" />
+              </FormField>
+              <FormField label="Delivery challan prefix" error={fieldErrors.challanPrefix}>
+                <Input value={form.challanPrefix} maxLength={8} onChange={(event) => set({ challanPrefix: event.target.value.toUpperCase() })} className="font-mono" />
+              </FormField>
             </div>
 
             <div className="border-t pt-4">
-              <p className="mb-3 text-sm font-medium">Primary Admin</p>
+              <p className="mb-3 text-sm font-medium">Firm Manager</p>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <FormField label="Name" required error={fieldErrors.adminName}>
                   <Input value={form.adminName} onChange={(event) => set({ adminName: event.target.value })} />
@@ -235,29 +282,60 @@ export function ToggleFirmStatusButton({
   status,
 }: {
   firmId: string;
-  status: "ACTIVE" | "INACTIVE";
+  status: "ACTIVE" | "INACTIVE" | "SUSPENDED";
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const nextStatus = status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+
+  const change = (next: "ACTIVE" | "INACTIVE" | "SUSPENDED", message: string) =>
+    startTransition(async () => {
+      const result = await setFirmStatusAction(firmId, next);
+      if (result.ok) {
+        toast.success(message);
+        router.refresh();
+      } else {
+        toast.error(result.error);
+      }
+    });
 
   return (
+    <div className="flex flex-wrap gap-2">
+      {status === "ACTIVE" ? (
+        <>
+          <Button variant="outline" loading={isPending} onClick={() => change("SUSPENDED", "Firm suspended")}>
+            Suspend
+          </Button>
+          <Button variant="destructive" loading={isPending} onClick={() => change("INACTIVE", "Firm deactivated")}>
+            Deactivate
+          </Button>
+        </>
+      ) : (
+        <Button loading={isPending} onClick={() => change("ACTIVE", status === "SUSPENDED" ? "Firm reactivated" : "Firm activated")}>
+          {status === "SUSPENDED" ? "Reactivate firm" : "Activate firm"}
+        </Button>
+      )}
+    </div>
+  );
+}
+
+export function RevokeAdminAccessButton({ userId }: { userId: string }) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  return (
     <Button
-      variant={status === "ACTIVE" ? "destructive" : "default"}
+      variant="outline"
       loading={isPending}
       onClick={() =>
         startTransition(async () => {
-          const result = await setFirmStatusAction(firmId, nextStatus);
+          const result = await revokeFirmAdminAccessCodeAction(userId);
           if (result.ok) {
-            toast.success(nextStatus === "ACTIVE" ? "Firm activated" : "Firm deactivated");
+            toast.success("Access revoked — issue a new code to restore sign-in");
             router.refresh();
-          } else {
-            toast.error(result.error);
-          }
+          } else toast.error(result.error);
         })
       }
     >
-      {status === "ACTIVE" ? "Deactivate firm" : "Activate firm"}
+      Revoke access
     </Button>
   );
 }
@@ -282,14 +360,14 @@ export function ResetAdminAccessCodeButton({ userId }: { userId: string }) {
           })
         }
       >
-        Reset admin access code
+        Issue new access code
       </Button>
 
       <Dialog open={!!revealed} onOpenChange={(next) => !next && setRevealed(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>New access code</DialogTitle>
-            <DialogDescription>Share this with the admin now — it will not be shown again.</DialogDescription>
+            <DialogDescription>Share this with the Firm Manager now — it will not be shown again.</DialogDescription>
           </DialogHeader>
           <p className="text-center font-mono text-3xl font-bold tracking-widest">{revealed}</p>
           <DialogFooter>

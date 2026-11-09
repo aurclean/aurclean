@@ -72,7 +72,9 @@ export const dateSchema = z.coerce.date({ message: "Enter a valid date" });
 
 export const optionalDate = z
   .union([z.coerce.date(), z.literal(""), z.null(), z.undefined()])
-  .transform((value) => (value === "" || value === null || value === undefined ? null : value));
+  .transform((value) => (value === "" || value === null || value === undefined ? null : value))
+  // A missing key (e.g. the staff form never sends a joining date) must be accepted.
+  .optional();
 
 export const paginationSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),

@@ -211,11 +211,23 @@ export async function saveServiceRateAction(payload: unknown): Promise<ActionRes
   });
 }
 
+/**
+ * Notification templates are shared by every firm (the table has no firmId),
+ * so editing one would change another firm's customer messages. Only the
+ * platform role may change them.
+ */
+function assertPlatformTemplateEditor(role: string) {
+  if (role !== "PLATFORM_SUPER_ADMIN") {
+    throw new BusinessRuleError("Message templates are shared across firms and can only be changed by the platform administrator");
+  }
+}
+
 export async function saveTemplateAction(
   payload: unknown,
 ): Promise<ActionResult<{ id: string }>> {
   return runAction(async () => {
     const user = await authorize(PERMISSIONS.NOTIFICATION_MANAGE);
+    assertPlatformTemplateEditor(user.role);
     const input = notificationTemplateSchema.parse(payload);
 
     const data = {
@@ -251,7 +263,7 @@ export async function resendNotificationAction(
 ): Promise<ActionResult<null>> {
   return runAction(async () => {
     const user = await authorize(PERMISSIONS.NOTIFICATION_MANAGE);
-    const success = await resendNotification(notificationId);
+    const success = await resendNotification(notificationId, requireFirmId(user));
 
     await recordAudit({
       userId: user.id,
@@ -364,9 +376,10 @@ export async function decideExpenseAction(payload: unknown): Promise<ActionResul
 
     const expense = await prisma.expense.findUnique({
       where: { id: input.expenseId },
-      select: { id: true, branchId: true, expenseNumber: true, status: true },
+      select: { id: true, branchId: true, firmId: true, expenseNumber: true, status: true },
     });
     if (!expense) throw new NotFoundError("Expense not found");
+    assertFirmAccess(user, expense.firmId);
     assertBranchAccess(user, expense.branchId);
 
     await prisma.expense.update({
@@ -515,11 +528,13 @@ export async function deleteExpenseAction(payload: unknown): Promise<ActionResul
         id: true,
         expenseNumber: true,
         branchId: true,
+        firmId: true,
         status: true,
         amount: true,
       },
     });
     if (!expense) throw new NotFoundError("Expense not found");
+    assertFirmAccess(user, expense.firmId);
     assertBranchAccess(user, expense.branchId);
 
     if (expense.status !== "PENDING") {
@@ -548,6 +563,7 @@ export async function deleteExpenseAction(payload: unknown): Promise<ActionResul
 export async function archiveTemplateAction(payload: unknown): Promise<ActionResult<null>> {
   return runAction(async () => {
     const user = await authorize(PERMISSIONS.NOTIFICATION_MANAGE);
+    assertPlatformTemplateEditor(user.role);
     const { id } = z.object({ id: cuidSchema }).parse(payload);
 
     const template = await prisma.notificationTemplate.findUnique({

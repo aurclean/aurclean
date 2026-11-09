@@ -46,8 +46,18 @@ export async function notify(input: NotifyInput): Promise<void> {
       },
     });
 
+    // The owning firm comes from the order (or branch) the notification is
+    // about, never from a global default — the message is branded with that
+    // firm's own name.
+    const owner = input.orderId
+      ? await prisma.order.findUnique({ where: { id: input.orderId }, select: { firmId: true, firm: { select: { name: true } } } })
+      : input.branchId
+        ? await prisma.branch.findUnique({ where: { id: input.branchId }, select: { firmId: true, firm: { select: { name: true } } } })
+        : null;
+    if (!owner) return; // no firm to attribute it to: nothing is sent or stored
+
     const variables = {
-      brand: process.env.APP_NAME ?? "Aura Laundry",
+      brand: owner.firm.name,
       ...input.variables,
     };
 
@@ -72,6 +82,7 @@ export async function notify(input: NotifyInput): Promise<void> {
 
       const notification = await prisma.notification.create({
         data: {
+          firmId: owner.firmId,
           event: input.event,
           channel: target.channel,
           templateId: target.templateId,
@@ -122,9 +133,10 @@ export async function notify(input: NotifyInput): Promise<void> {
 }
 
 /** Retries a previously failed or queued notification. */
-export async function resendNotification(notificationId: string): Promise<boolean> {
-  const notification = await prisma.notification.findUnique({
-    where: { id: notificationId },
+export async function resendNotification(notificationId: string, firmId: string): Promise<boolean> {
+  // Firm-scoped lookup: another firm's notification id is simply not found.
+  const notification = await prisma.notification.findFirst({
+    where: { id: notificationId, firmId },
   });
   if (!notification) return false;
 
