@@ -111,9 +111,9 @@ function CredentialsRevealDialog({
   );
 }
 
-export function CreateFirmDialog() {
+export function CreateFirmDialog({ defaultOpen = false }: { defaultOpen?: boolean }) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
@@ -325,15 +325,16 @@ export function RevokeAdminAccessButton({ userId }: { userId: string }) {
     <Button
       variant="outline"
       loading={isPending}
-      onClick={() =>
+      onClick={() => {
+        if (!window.confirm("Revoke access? This person cannot sign in until a new code is issued.")) return;
         startTransition(async () => {
           const result = await revokeFirmAdminAccessCodeAction(userId);
           if (result.ok) {
             toast.success("Access revoked — issue a new code to restore sign-in");
             router.refresh();
           } else toast.error(result.error);
-        })
-      }
+        });
+      }}
     >
       Revoke access
     </Button>
@@ -349,7 +350,8 @@ export function ResetAdminAccessCodeButton({ userId }: { userId: string }) {
       <Button
         variant="outline"
         loading={isPending}
-        onClick={() =>
+        onClick={() => {
+          if (!window.confirm("Issue a new access code? The current code stops working immediately.")) return;
           startTransition(async () => {
             const result = await resetFirmAdminAccessCodeAction(userId);
             if (result.ok) {
@@ -357,8 +359,8 @@ export function ResetAdminAccessCodeButton({ userId }: { userId: string }) {
             } else {
               toast.error(result.error);
             }
-          })
-        }
+          });
+        }}
       >
         Issue new access code
       </Button>

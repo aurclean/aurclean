@@ -15,7 +15,7 @@
   --popover-foreground: #101828;
 
   /* Dark navy — active nav, primary buttons, selected tabs */
-  --primary: #101828;
+  --primary: #0a3b2c;
   --primary-foreground: #ffffff;
 
   /* Very light neutral gray secondary surface (buttons, quiet fills) */
@@ -37,7 +37,7 @@
 
   --border: #e6e8eb;
   --input: #e6e8eb;
-  --ring: #101828;
+  --ring: #0a3b2c;
 
   /* AURCLEAN emerald — success states double as the brand's positive accent */
   --success: #0f9d67;

@@ -10,7 +10,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatCard } from "@/components/shared/stat-card";
 import { StatusBadge } from "@/components/shared/status-badge";
-import { RegenerateAccessCodeDialog } from "@/app/(app)/staff/staff-dialogs";
+import { RegenerateAccessCodeDialog, RevokeAccessCodeButton } from "@/app/(app)/staff/staff-dialogs";
 import {
   PermissionMatrix,
   type PermissionRow,
@@ -119,7 +119,10 @@ export default async function StaffDetailPage({
               </Link>
             </Button>
             {canManage ? (
-              <RegenerateAccessCodeDialog userId={staff.id} name={staff.name} />
+              <>
+                <RegenerateAccessCodeDialog userId={staff.id} name={staff.name} />
+                <RevokeAccessCodeButton userId={staff.id} name={staff.name} />
+              </>
             ) : null}
           </>
         }

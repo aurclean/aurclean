@@ -61,11 +61,10 @@ const PLATFORM_NAV: NavSection[] = [
   {
     items: [
       item("Dashboard", "/platform", LayoutDashboard, [PERMISSIONS.PLATFORM_VIEW], true),
-      item("Firms", "/firms", Building2, [PERMISSIONS.FIRM_VIEW]),
-      item("Firm Managers", "/platform/managers", Users, [PERMISSIONS.FIRM_VIEW]),
+      item("Firms", "/firms", Building2, [PERMISSIONS.FIRM_VIEW], true),
+      item("Create Firm", "/firms/new", Boxes, [PERMISSIONS.FIRM_MANAGE]),
       item("Platform Activity", "/platform/activity", Activity, [PERMISSIONS.PLATFORM_VIEW]),
-      item("WhatsApp Overview", "/platform/whatsapp", MessageSquare, [PERMISSIONS.PLATFORM_VIEW]),
-      item("Platform Settings", "/platform/settings", Settings, [PERMISSIONS.PLATFORM_VIEW]),
+      item("Settings", "/platform/settings", Settings, [PERMISSIONS.PLATFORM_VIEW]),
     ],
   },
 ];
@@ -77,14 +76,14 @@ const FIRM_MANAGER_NAV: NavSection[] = [
       item("Dashboard", "/dashboard", LayoutDashboard, [PERMISSIONS.DASHBOARD_VIEW], true),
       item("Orders", "/orders", ClipboardList, [PERMISSIONS.ORDER_VIEW]),
       item("Customers", "/customers", Users, [PERMISSIONS.CUSTOMER_VIEW]),
-      item("Field Managers", "/staff?role=FIELD_MANAGER", Truck, [PERMISSIONS.STAFF_VIEW]),
-      item("QC", "/qc", Shirt, [PERMISSIONS.QC_VIEW]),
+      item("Users & Staff", "/staff", Users, [PERMISSIONS.STAFF_VIEW]),
       item("Services", "/services", Tag, [PERMISSIONS.CATALOGUE_MANAGE]),
+      item("QC", "/qc", Shirt, [PERMISSIONS.QC_VIEW]),
       item("Payments", "/billing", Receipt, [PERMISSIONS.BILLING_VIEW]),
       item("Documents", "/delivery-challans", FileText, [PERMISSIONS.BILLING_VIEW]),
-      item("WhatsApp Settings", "/settings/whatsapp", MessageSquare, [PERMISSIONS.WHATSAPP_MANAGE]),
+      item("WhatsApp", "/settings/whatsapp", MessageSquare, [PERMISSIONS.WHATSAPP_MANAGE]),
       item("Reports", "/reports", FileBarChart, [PERMISSIONS.REPORT_VIEW]),
-      item("Firm Settings", "/settings", Settings, [PERMISSIONS.SETTINGS_MANAGE]),
+      item("Settings", "/settings", Settings, [PERMISSIONS.SETTINGS_MANAGE]),
     ],
   },
   {

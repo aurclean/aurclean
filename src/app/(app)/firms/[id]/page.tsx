@@ -7,12 +7,10 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { prisma } from "@/lib/prisma";
-import { PERMISSIONS, ROLE_LABELS } from "@/lib/rbac";
+import { PERMISSIONS } from "@/lib/rbac";
 import { requirePermission } from "@/lib/session";
 import {
   EditFirmDialog,
-  ResetAdminAccessCodeButton,
-  RevokeAdminAccessButton,
   ToggleFirmStatusButton,
 } from "@/app/(app)/firms/firm-dialogs";
 import { EnterFirmButton } from "@/app/(app)/firms/enter-firm-button";
@@ -121,31 +119,15 @@ export default async function FirmDetailPage({
 
       <Card>
         <CardHeader>
-          <CardTitle>Firm Admins</CardTitle>
+          <CardTitle>Firm Manager</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-3">
-          {firm.users.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No admin account on this firm yet.</p>
-          ) : (
-            firm.users.map((admin) => (
-              <div
-                key={admin.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3"
-              >
-                <div>
-                  <p className="font-medium">{admin.name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {ROLE_LABELS.FIRM_MANAGER} · {admin.email} · {admin.employeeCode}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <StatusBadge status={admin.status} />
-                  <ResetAdminAccessCodeButton userId={admin.id} />
-                  <RevokeAdminAccessButton userId={admin.id} />
-                </div>
-              </div>
-            ))
-          )}
+        <CardContent className="space-y-1 text-sm">
+          {firm.users.map((m) => (
+            <p key={m.id}>{m.name} <span className="text-muted-foreground">· {m.email}</span></p>
+          ))}
+          <Button asChild variant="outline" size="sm" className="mt-2">
+            <Link href={`/firms/${firm.id}/manager`}>Manage manager access</Link>
+          </Button>
         </CardContent>
       </Card>
 

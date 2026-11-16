@@ -21,6 +21,7 @@ export async function logLoginEvent(params: {
   firmId?: string | null;
   userId?: string | null;
   customerId?: string | null;
+  actorId?: string | null;
   ip?: string | null;
   userAgent?: string | null;
   detail?: string | null;
@@ -32,6 +33,7 @@ export async function logLoginEvent(params: {
         firmId: params.firmId ?? null,
         userId: params.userId ?? null,
         customerId: params.customerId ?? null,
+        actorId: params.actorId ?? null,
         ip: params.ip ?? null,
         userAgent: params.userAgent?.slice(0, 300) ?? null,
         detail: params.detail ?? null,

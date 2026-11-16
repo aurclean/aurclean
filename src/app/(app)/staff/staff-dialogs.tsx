@@ -30,6 +30,7 @@ import {
   decideLeaveAction,
   markAttendanceAction,
   regenerateAccessCodeAction,
+  revokeAccessCodeAction,
 } from "@/app/(app)/staff/actions";
 import type { FieldErrors } from "@/lib/action-result";
 
@@ -314,6 +315,29 @@ export function RegenerateAccessCodeDialog({
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+export function RevokeAccessCodeButton({ userId, name }: { userId: string; name: string }) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      loading={isPending}
+      onClick={() =>
+        startTransition(async () => {
+          const result = await revokeAccessCodeAction({ userId });
+          if (result.ok) {
+            toast.success(`${name}'s access code revoked`);
+            router.refresh();
+          } else toast.error(result.error);
+        })
+      }
+    >
+      Revoke code
+    </Button>
   );
 }
 

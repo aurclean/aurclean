@@ -58,3 +58,10 @@ export const updateFirmSchema = z.object({
   pan: optionalText(20),
   website: optionalText(160),
 });
+
+export const addFirmManagerSchema = z.object({
+  firmId: cuidSchema,
+  name: z.string().trim().min(2, "Name is required").max(120),
+  email: z.string().trim().toLowerCase().email("Enter a valid email address"),
+  phone: optionalPhone,
+});
