@@ -16,7 +16,7 @@ import {
 import { generateUniqueAccessCode, accessCodeData, issueAccessCode, revokeAccessCode } from "@/lib/access-code";
 import { logLoginEvent } from "@/lib/login-security";
 import { nextEmployeeCode } from "@/lib/sequence";
-import { createFirmSchema, updateFirmSchema } from "@/lib/validations/firm";
+import { addFirmManagerSchema, createFirmSchema, updateFirmSchema } from "@/lib/validations/firm";
 
 /**
  * Creates a new tenant firm plus its Primary Admin user in one transaction.
@@ -119,7 +119,7 @@ export async function createFirmAction(
       return { firm, admin };
     });
 
-    await logLoginEvent({ event: "CODE_ISSUED", firmId: result.firm.id, userId: result.admin.id, detail: `by ${actor.id}` });
+    await logLoginEvent({ event: "CODE_ISSUED", firmId: result.firm.id, userId: result.admin.id, actorId: actor.id });
     await recordAudit({
       userId: actor.id,
       firmId: result.firm.id,
@@ -218,7 +218,7 @@ export async function resetFirmAdminAccessCodeAction(
   userId: string,
 ): Promise<ActionResult<{ accessCode: string }>> {
   return runAction(async () => {
-    await authorize(PERMISSIONS.FIRM_MANAGE);
+    const actor = await authorize(PERMISSIONS.FIRM_MANAGE);
 
     const admin = await prisma.user.findUnique({
       where: { id: userId },
@@ -230,7 +230,7 @@ export async function resetFirmAdminAccessCodeAction(
     }
 
     const accessCode = await issueAccessCode(userId);
-    await logLoginEvent({ event: "CODE_REGENERATED", firmId: admin.firmId, userId });
+    await logLoginEvent({ event: "CODE_REGENERATED", firmId: admin.firmId, userId, actorId: actor.id });
 
     await recordAudit({
       firmId: admin.firmId,
@@ -254,7 +254,7 @@ export async function revokeFirmAdminAccessCodeAction(userId: string): Promise<A
     if (admin.role !== "FIRM_MANAGER") throw new BusinessRuleError("This action only revokes a Firm Manager's access");
 
     await revokeAccessCode(userId);
-    await logLoginEvent({ event: "CODE_REVOKED", firmId: admin.firmId, userId, detail: `by ${actor.id}` });
+    await logLoginEvent({ event: "CODE_REVOKED", firmId: admin.firmId, userId, actorId: actor.id });
     await recordAudit({
       userId: actor.id,
       firmId: admin.firmId,
@@ -265,5 +265,68 @@ export async function revokeFirmAdminAccessCodeAction(userId: string): Promise<A
     });
     revalidatePath(`/firms/${admin.firmId}`);
     return null;
+  });
+}
+
+/** Activates or deactivates one Firm Manager's access (their code is kept; sign-in is simply refused while inactive). */
+export async function setFirmManagerStatusAction(userId: string, status: "ACTIVE" | "INACTIVE"): Promise<ActionResult<null>> {
+  return runAction(async () => {
+    const actor = await authorize(PERMISSIONS.FIRM_MANAGE);
+    const manager = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, name: true, role: true, firmId: true, status: true } });
+    if (!manager || manager.role !== "FIRM_MANAGER") throw new NotFoundError("Firm Manager not found");
+    if (manager.status === status) throw new BusinessRuleError(`${manager.name} is already ${status.toLowerCase()}`);
+
+    await prisma.user.update({ where: { id: userId }, data: { status } });
+    await recordAudit({
+      userId: actor.id,
+      firmId: manager.firmId,
+      action: status === "ACTIVE" ? "FIRM_MANAGER_ACTIVATED" : "FIRM_MANAGER_DEACTIVATED",
+      entity: "User",
+      entityId: userId,
+      summary: `${manager.name} ${status === "ACTIVE" ? "activated" : "deactivated"}`,
+    });
+    revalidatePath(`/firms/${manager.firmId}/manager`);
+    revalidatePath("/platform");
+    return null;
+  });
+}
+
+/**
+ * Adds a further Firm Manager (firm administrator) to an existing firm. The
+ * new account is bound to that firm; only the platform role can do this, and
+ * a Firm Manager can never create another manager.
+ */
+export async function addFirmManagerAction(payload: unknown): Promise<ActionResult<{ accessCode: string; employeeCode: string }>> {
+  return runAction(async () => {
+    const actor = await authorize(PERMISSIONS.FIRM_MANAGE);
+    const input = addFirmManagerSchema.parse(payload);
+
+    const firm = await prisma.firm.findUnique({ where: { id: input.firmId }, select: { id: true, name: true, branches: { take: 1, orderBy: { createdAt: "asc" }, select: { id: true } } } });
+    if (!firm) throw new NotFoundError("Firm not found");
+    if (await prisma.user.findUnique({ where: { email: input.email }, select: { id: true } })) {
+      throw new BusinessRuleError("That email address is already registered");
+    }
+
+    const { code, hash } = await generateUniqueAccessCode();
+    const user = await prisma.$transaction(async (tx) =>
+      tx.user.create({
+        data: {
+          firmId: firm.id,
+          branchId: firm.branches[0]?.id ?? null,
+          employeeCode: await nextEmployeeCode(tx),
+          name: input.name,
+          email: input.email,
+          phone: input.phone ?? null,
+          ...accessCodeData(hash),
+          createdById: actor.id,
+          role: "FIRM_MANAGER",
+        },
+        select: { id: true, employeeCode: true },
+      }),
+    );
+    await logLoginEvent({ event: "CODE_ISSUED", firmId: firm.id, userId: user.id, actorId: actor.id });
+    await recordAudit({ userId: actor.id, firmId: firm.id, action: "FIRM_MANAGER_ADDED", entity: "User", entityId: user.id, summary: `${input.name} added as Firm Manager of ${firm.name}` });
+    revalidatePath(`/firms/${firm.id}/manager`);
+    return { accessCode: code, employeeCode: user.employeeCode ?? "" };
   });
 }

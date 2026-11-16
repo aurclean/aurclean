@@ -17,6 +17,7 @@ import {
 import { setStaffStatusAction } from "@/app/(app)/staff/actions";
 import { prisma } from "@/lib/prisma";
 import { formatDate, toInputDate, todayRange } from "@/lib/dates";
+import { Button } from "@/components/ui/button";
 import { PERMISSIONS, ROLE_LABELS, STAFF_ROLES, isGlobalRole } from "@/lib/rbac";
 import { hasPermission, requireFirmId, requirePermission } from "@/lib/session";
 import { humanize } from "@/lib/utils";
@@ -30,7 +31,7 @@ import {
 import type { Prisma } from "@/generated/prisma/client";
 import type { UserRole } from "@/generated/prisma/enums";
 
-export const metadata = { title: "Staff" };
+export const metadata = { title: "Users & Staff" };
 
 const ALL_ROLES = (["FIRM_MANAGER", "FIELD_MANAGER", "QC"] as UserRole[]);
 
@@ -46,6 +47,8 @@ interface StaffRow {
   department: string | null;
   attendanceToday: string | null;
   completedToday: number;
+  createdAt: Date;
+  codeActive: boolean;
 }
 
 export default async function StaffPage({
@@ -106,7 +109,7 @@ export default async function StaffPage({
       prisma.leave.findMany({
         where: {
           status: "PENDING",
-          user: { ...(branchId ? { branchId } : {}) },
+          user: { firmId, ...(branchId ? { branchId } : {}) },
         },
         orderBy: { fromDate: "asc" },
         include: { user: { select: { id: true, name: true, employeeCode: true } } },
@@ -116,6 +119,7 @@ export default async function StaffPage({
         where: {
           status: { in: ["PRESENT", "HALF_DAY"] },
           date: { gte: today.from, lte: today.to },
+          user: { firmId },
           ...(branchId ? { branchId } : {}),
         },
       }),
@@ -124,6 +128,7 @@ export default async function StaffPage({
         where: {
           status: { in: ["COMPLETED", "PASSED"] },
           completedAt: { gte: today.from, lte: today.to },
+          garment: { firmId },
           ...(branchId ? { branchId } : {}),
         },
         _count: { _all: true },
@@ -148,6 +153,8 @@ export default async function StaffPage({
     department: member.staffProfile?.department ?? null,
     attendanceToday: member.attendances[0]?.status ?? null,
     completedToday: productivityByUser.get(member.id) ?? 0,
+    createdAt: member.createdAt,
+    codeActive: Boolean(member.accessCodeHash),
   }));
 
   const canManage = hasPermission(user, PERMISSIONS.STAFF_MANAGE);
@@ -198,7 +205,29 @@ export default async function StaffPage({
           } satisfies Column<StaffRow>,
         ]
       : []),
+    {
+      key: "phone",
+      header: "Phone",
+      hideOnMobile: true,
+      cell: (row) => <span className="text-sm text-muted-foreground">{row.phone ?? "—"}</span>,
+    },
+    {
+      key: "code",
+      header: "Access code",
+      hideOnMobile: true,
+      cell: (row) => (
+        <span className={row.codeActive ? "text-sm text-emerald-800" : "text-sm text-destructive"}>
+          {row.codeActive ? "Active" : "Revoked"}
+        </span>
+      ),
+    },
     { key: "status", header: "Status", cell: (row) => <StatusBadge status={row.status} dot /> },
+    {
+      key: "created",
+      header: "Created",
+      hideOnMobile: true,
+      cell: (row) => <span className="text-xs text-muted-foreground">{formatDate(row.createdAt)}</span>,
+    },
     {
       key: "productivity",
       header: "Done today",
@@ -275,17 +304,24 @@ export default async function StaffPage({
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Staff"
-        description="People, roles, attendance and daily output."
+        title="Users & Staff"
+        description="Your Field Managers and QC team, their access codes, branches and daily output. Customers are registered under Customers."
         actions={
-          canManage ? (
-            <NewStaffDialog
-              branches={branches}
-              shifts={shifts}
-              assignableRoles={assignableRoles}
-              defaultBranchId={user.branchId}
-            />
-          ) : null
+          <>
+            {hasPermission(user, PERMISSIONS.CUSTOMER_MANAGE) ? (
+              <Button asChild variant="outline">
+                <Link href="/customers">Register customer</Link>
+              </Button>
+            ) : null}
+            {canManage ? (
+              <NewStaffDialog
+                branches={branches}
+                shifts={shifts}
+                assignableRoles={assignableRoles}
+                defaultBranchId={user.branchId}
+              />
+            ) : null}
+          </>
         }
       />
 

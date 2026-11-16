@@ -123,6 +123,7 @@ export async function createStaffAction(
       return staff;
     });
 
+    await logLoginEvent({ event: "CODE_ISSUED", firmId, userId: created.id, actorId: user.id });
     await recordAudit({
       userId: user.id,
       branchId,
@@ -241,7 +242,7 @@ export async function regenerateAccessCodeAction(
     assertCanAssignRole(user.role, staff.role);
 
     const accessCode = await issueAccessCode(staff.id);
-    await logLoginEvent({ event: "CODE_REGENERATED", firmId: staff.firmId, userId: staff.id, detail: `by ${user.id}` });
+    await logLoginEvent({ event: "CODE_REGENERATED", firmId: staff.firmId, userId: staff.id, actorId: user.id });
 
     // The new code itself is never written to the audit trail.
     await recordAudit({
@@ -273,7 +274,7 @@ export async function revokeAccessCodeAction(payload: unknown): Promise<ActionRe
     assertCanAssignRole(user.role, staff.role);
 
     await revokeAccessCode(staff.id);
-    await logLoginEvent({ event: "CODE_REVOKED", firmId: staff.firmId, userId: staff.id, detail: `by ${user.id}` });
+    await logLoginEvent({ event: "CODE_REVOKED", firmId: staff.firmId, userId: staff.id, actorId: user.id });
     await recordAudit({
       userId: user.id,
       branchId: staff.branchId,

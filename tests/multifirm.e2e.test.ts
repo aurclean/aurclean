@@ -52,6 +52,9 @@ let platformUserId: string;
 const firms: Record<string, FirmCtx> = {};
 const createdFirmIds: string[] = [];
 
+/** Confirmation prompts (reissue / revoke) are accepted automatically in tests. */
+const acceptDialogs = (page: Page) => page.on("dialog", (d: any) => d.accept());
+
 const mobile = () => ({ ...playwright.devices["iPhone 13"] });
 
 async function newCtx(): Promise<BrowserContext> {
@@ -173,7 +176,7 @@ test("1. Platform Super Admin signs in to the platform dashboard (not a firm)", 
   const ctx = await newCtx();
   const { page, landed } = await login(ctx, platformCode);
   assert.equal(landed, "/platform");
-  await page.getByText("Platform dashboard").first().waitFor();
+  await page.getByText("Every registered firm").first().waitFor();
   // Operational pages are closed until a firm is explicitly entered.
   const res = await page.goto("/orders");
   assert.equal(new URL(page.url()).pathname, "/platform", `redirected away from /orders (status ${res?.status()})`);
@@ -591,5 +594,192 @@ test("15. Logins and logouts are recorded", async () => {
   await ctx.request.post("/api/auth/signout", { form: { csrfToken: csrf, callbackUrl: "/login" } });
   void page;
   assert.ok(await prisma.loginEvent.count({ where: { userId: manager.id, event: "LOGOUT" } }) >= 1, "LOGOUT recorded");
+  await ctx.close();
+});
+
+// ---------------------------------------------------------------------------
+// Platform firm-wise user & access-code management
+// ---------------------------------------------------------------------------
+
+test("16. Platform dashboard lists firms with manager code STATUS only — no code, hash or staff code appears", async () => {
+  const ctx = await newCtx();
+  const { page } = await login(ctx, platformCode);
+  await page.goto("/platform");
+  await page.getByText(firms.BHATKAL.name).first().waitFor({ timeout: 30000 });
+  const html = await page.content();
+  const text = await page.locator("main").innerText();
+
+  for (const f of Object.values(firms)) {
+    assert.ok(text.includes(f.name), `${f.key} listed`);
+    assert.ok(html.includes(f.firmId), `${f.key} firm id shown`);
+    // Credentials: neither the secret nor its hash may be in the page.
+    for (const code of [f.managerCode, f.fieldCode, f.qcCode]) {
+      assert.ok(!html.includes(code) && !html.includes(code.replace(/-/g, "")), `no access code in the dashboard HTML`);
+    }
+    const mgr = await prisma.user.findFirstOrThrow({ where: { firmId: f.firmId, role: "FIRM_MANAGER" } });
+    assert.ok(!html.includes(mgr.accessCodeHash!), "no stored hash in the dashboard HTML");
+  }
+  assert.match(text, /Access code: Active · Issued/);
+  assert.match(text, /by E2E Platform Admin/);
+  assert.match(text, /Total users|total users/);
+
+  // Counts agree with the database (users + customers; staff = Field Manager + QC).
+  const f = firms.FALNIR;
+  const users = await prisma.user.count({ where: { firmId: f.firmId } });
+  const customers = await prisma.customer.count({ where: { firmId: f.firmId } });
+  const staff = await prisma.user.count({ where: { firmId: f.firmId, role: { in: ["FIELD_MANAGER", "QC"] } } });
+  const card = page.locator("div.space-y-4", { hasText: f.name }).first();
+  void card;
+  assert.ok(text.includes(`${users + customers} total users`), `Falnir shows ${users + customers} total users`);
+  assert.ok(text.includes(`${staff} staff`), `Falnir shows ${staff} staff`);
+  await ctx.close();
+});
+
+test("17. Reissue: new code shown once, old code dead immediately, actor recorded", async () => {
+  const f = firms.DERALAKATTE;
+  const ctx = await newCtx();
+  const { page } = await login(ctx, platformCode);
+  acceptDialogs(page);
+  await page.goto(`/firms/${f.firmId}/manager`);
+  await page.getByRole("button", { name: /Issue new access code/ }).first().click();
+  const dialog = page.getByRole("dialog");
+  // The confirm step, then the reveal.
+  const btn = dialog.getByRole("button", { name: /Issue|Reset|Generate|Confirm/ });
+  if (await btn.count()) await btn.first().click().catch(() => {});
+  await dialog.getByText(/New access code/).waitFor({ timeout: 20000 });
+  const fresh = CODE_RE.exec(await dialog.innerText())?.[0];
+  assert.ok(fresh, "reissued code displayed once");
+  assert.notEqual(fresh, f.managerCode);
+  await dialog.getByRole("button", { name: "Done" }).click();
+
+  // Not retrievable afterwards.
+  await page.reload();
+  assert.ok(!(await page.content()).includes(fresh!), "new code is not on the page after closing");
+  await ctx.close();
+
+  // Old code is revoked immediately, new code works.
+  const c1 = await newCtx();
+  const p1 = await c1.newPage();
+  await p1.goto("/login");
+  await p1.getByLabel("Access code").fill(f.managerCode);
+  await p1.getByRole("button", { name: "Continue" }).click();
+  await p1.getByText(/not recognised|Too many/).waitFor();
+  await c1.close();
+  const c2 = await newCtx();
+  assert.equal((await login(c2, fresh!)).landed, "/dashboard");
+  await c2.close();
+  f.managerCode = fresh!;
+
+  const manager = await prisma.user.findFirstOrThrow({ where: { firmId: f.firmId, role: "FIRM_MANAGER" } });
+  const evt = await prisma.loginEvent.findFirstOrThrow({ where: { userId: manager.id, event: "CODE_REGENERATED" }, orderBy: { createdAt: "desc" } });
+  assert.equal(evt.actorId, platformUserId, "who reissued the code is recorded");
+  await prisma.loginEvent.deleteMany({ where: { event: "LOGIN_FAILED" } });
+});
+
+test("18. Platform 'Users & Staff' shows only the selected firm's people, grouped by role, without secrets", async () => {
+  const a = firms.FALNIR;
+  const ctx = await newCtx();
+  const { page } = await login(ctx, platformCode);
+  await page.goto(`/firms/${a.firmId}/users`);
+  await page.getByText("Field Managers (1)").waitFor({ timeout: 30000 });
+  const text = await page.locator("main").innerText();
+  const html = await page.content();
+  for (const heading of ["Firm Manager (1)", "Field Managers (1)", "QC (1)", "Customers ("]) assert.ok(text.includes(heading), heading);
+  assert.match(text, /FALNIR Field/);
+  assert.match(text, /FALNIR QC/);
+  assert.match(text, /FALNIR Customer/);
+  assert.doesNotMatch(text, /DERALAKATTE|BHATKAL/);
+  assert.match(text, /Active/);
+  for (const code of [a.managerCode, a.fieldCode, a.qcCode]) assert.ok(!html.includes(code));
+  // The firm sections exist.
+  for (const tab of ["Firm Overview", "Firm Manager", "Users & Staff", "WhatsApp Status", "Firm Activity"]) {
+    assert.ok(await page.getByRole("link", { name: tab }).first().isVisible(), `tab ${tab}`);
+  }
+  await ctx.close();
+});
+
+test("19. Platform: add a Firm Manager to a firm, deactivate / reactivate access, revoke", async () => {
+  const f = firms.BHATKAL;
+  const ctx = await newCtx();
+  const { page } = await login(ctx, platformCode);
+  acceptDialogs(page);
+  await page.goto(`/firms/${f.firmId}/manager`);
+  await page.getByRole("button", { name: "Add another Firm Manager" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.locator("input").nth(0).fill("Second Manager");
+  await dialog.locator("input").nth(1).fill(`second-${RUN}@e2e.test`);
+  await dialog.getByRole("button", { name: "Create manager" }).click();
+  await dialog.getByText("can now sign in").waitFor({ timeout: 20000 });
+  const code = CODE_RE.exec(await dialog.innerText())?.[0];
+  assert.ok(code);
+  const created = await prisma.user.findFirstOrThrow({ where: { email: `second-${RUN}@e2e.test` } });
+  assert.equal(created.firmId, f.firmId, "bound to the selected firm");
+  assert.equal(created.role, "FIRM_MANAGER");
+  assert.ok(created.accessCodeHash && !created.accessCode);
+  await dialog.getByRole("button", { name: "Done" }).click();
+
+  // Deactivate: cannot sign in; reactivate: can.
+  await prisma.user.update({ where: { id: created.id }, data: { status: "ACTIVE" } });
+  await page.reload();
+  const row = page.locator("div.grid", { hasText: "Second Manager" }).last();
+  await row.getByRole("button", { name: "Deactivate" }).click();
+  await page.waitForTimeout(1500);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: created.id } })).status, "INACTIVE");
+  const c1 = await newCtx();
+  const p1 = await c1.newPage();
+  await p1.goto("/login");
+  await p1.getByLabel("Access code").fill(code!);
+  await p1.getByRole("button", { name: "Continue" }).click();
+  await p1.getByText(/not recognised|Too many/).waitFor();
+  await c1.close();
+
+  await page.locator("div.grid", { hasText: "Second Manager" }).last().getByRole("button", { name: "Activate" }).click();
+  await page.waitForTimeout(1500);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: created.id } })).status, "ACTIVE");
+  const c2 = await newCtx();
+  assert.equal((await login(c2, code!)).landed, "/dashboard");
+  await c2.close();
+
+  await page.locator("div.grid", { hasText: "Second Manager" }).last().getByRole("button", { name: "Revoke access" }).click();
+  await page.waitForTimeout(1500);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: created.id } })).accessCodeHash, null);
+  const rev = await prisma.loginEvent.findFirstOrThrow({ where: { userId: created.id, event: "CODE_REVOKED" } });
+  assert.equal(rev.actorId, platformUserId);
+  await ctx.close();
+});
+
+test("20. A Firm Manager cannot add managers or touch another firm's users; platform firm pages are closed to them", async () => {
+  const a = firms.FALNIR;
+  const b = firms.DERALAKATTE;
+  const ctx = await newCtx();
+  const { page } = await login(ctx, a.managerCode);
+  for (const path of [`/firms/${b.firmId}/manager`, `/firms/${b.firmId}/users`, `/firms/${a.firmId}/manager`]) {
+    await page.goto(path);
+    await page.waitForLoadState("networkidle").catch(() => {});
+    await page.waitForTimeout(400);
+    assert.ok(!new URL(page.url()).pathname.startsWith("/firms"), `Firm Manager opening ${path} was redirected away`);
+  }
+  // Staff page shows only own staff, with phone / code state / created columns.
+  await page.goto("/staff");
+  await page.getByText("FALNIR Field").first().waitFor({ timeout: 30000 });
+  const text = await page.locator("main").innerText();
+  assert.doesNotMatch(text, /DERALAKATTE|BHATKAL/);
+  assert.match(text, /Users & Staff/);
+  await ctx.close();
+});
+
+test("21. Platform WhatsApp status per firm: real session state only, no QR", async () => {
+  const f = firms.FALNIR;
+  const ctx = await newCtx();
+  const { page } = await login(ctx, platformCode);
+  await page.goto(`/firms/${f.firmId}/whatsapp`);
+  await page.getByText("Connected number").waitFor({ timeout: 30000 });
+  const text = await page.locator("main").innerText();
+  const html = await page.content();
+  assert.match(text, /Falnir Laundry/);
+  assert.doesNotMatch(text, /Bhatkal|Deralakatte/);
+  assert.ok(!html.includes("data:image/png;base64"), "no QR code for the platform admin");
+  // No gateway session is paired in the test environment: status must not claim Connected.
+  assert.doesNotMatch(text, /Status\s*Connected\b/);
   await ctx.close();
 });

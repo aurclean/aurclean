@@ -2718,6 +2718,8 @@ model LoginEvent {
   userId    String?
   user      User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
   customerId String?
+  /// Who performed the action (e.g. the admin who issued, reset or revoked a code).
+  actorId   String?
   event     LoginEventType
   ip        String?
   userAgent String?
@@ -2726,6 +2728,7 @@ model LoginEvent {
 
   @@index([firmId, createdAt])
   @@index([userId, createdAt])
+  @@index([actorId])
   @@index([ip, event, createdAt])
   @@map("login_events")
 }
