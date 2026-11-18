@@ -47,6 +47,8 @@ export const createOrderSchema = z
     items: z.array(orderItemSchema).min(1, "Add at least one line item"),
 
     discountAmount: moneySchema.default(0),
+    discountType: z.enum(["AMOUNT", "PERCENT"]).default("AMOUNT"),
+    discountValue: z.coerce.number().min(0).optional(),
     discountReason: optionalText(200),
     gstRate: percentSchema.default(18),
 
@@ -72,6 +74,13 @@ export const createOrderSchema = z
   .refine(
     (data) => data.type !== "DELIVERY" || Boolean(data.addressLine),
     { message: "A delivery address is required", path: ["addressLine"] },
+  )
+  .refine(
+    (data) =>
+      data.discountType !== "PERCENT" ||
+      data.discountValue === undefined ||
+      data.discountValue <= 100,
+    { message: "Percentage discount cannot exceed 100%", path: ["discountValue"] },
   );
 
 export type CreateOrderInput = z.infer<typeof createOrderSchema>;

@@ -140,7 +140,8 @@ export function OrderForm({
   const [pickupScheduledAt, setPickupScheduledAt] = useState("");
 
   const [items, setItems] = useState<LineItem[]>(() => [newLine(services, garmentTypes)]);
-  const [discountAmount, setDiscountAmount] = useState(0);
+  const [discountType, setDiscountType] = useState<"AMOUNT" | "PERCENT">("AMOUNT");
+  const [discountValue, setDiscountValue] = useState(0);
   const [discountReason, setDiscountReason] = useState("");
   const [gstRate, setGstRate] = useState(defaultGstRate);
   const [advanceAmount, setAdvanceAmount] = useState(0);
@@ -173,7 +174,8 @@ export function OrderForm({
       weightKg: item.weightKg,
     })),
     b2bAccountId,
-    discountAmount,
+    discountType,
+    discountValue,
     gstRate,
   });
 
@@ -181,7 +183,8 @@ export function OrderForm({
     const payload = JSON.parse(quoteKey) as {
       items: { serviceId: string; garmentTypeId: string; quantity: number; weightKg: number }[];
       b2bAccountId: string;
-      discountAmount: number;
+      discountType: "AMOUNT" | "PERCENT";
+      discountValue: number;
       gstRate: number;
     };
 
@@ -201,7 +204,9 @@ export function OrderForm({
     void quoteOrderAction({
       items: valid,
       b2bAccountId: payload.b2bAccountId === "none" ? null : payload.b2bAccountId,
-      discountAmount: payload.discountAmount,
+      discountAmount: payload.discountType === "AMOUNT" ? payload.discountValue : 0,
+      discountType: payload.discountType,
+      discountValue: payload.discountValue,
       gstRate: payload.gstRate,
     }).then((result) => {
       if (cancelled || !result.ok) return;
@@ -255,7 +260,8 @@ export function OrderForm({
     setPincode("");
     setLandmark("");
     setItems([newLine(services, garmentTypes)]);
-    setDiscountAmount(0);
+    setDiscountType("AMOUNT");
+    setDiscountValue(0);
     setDiscountReason("");
     setAdvanceAmount(0);
     setSpecialInstructions("");
@@ -293,7 +299,9 @@ export function OrderForm({
           weightKg: item.weightKg,
           notes: item.notes,
         })),
-        discountAmount,
+        discountAmount: totals.discountAmount,
+        discountType,
+        discountValue,
         discountReason,
         gstRate,
         advanceAmount,
@@ -695,7 +703,11 @@ export function OrderForm({
                 <dd className="numeric">{formatCurrency(totals.subtotal)}</dd>
               </div>
               <div className="flex justify-between">
-                <dt className="text-muted-foreground">Discount</dt>
+                <dt className="text-muted-foreground">
+                  {discountType === "PERCENT" && discountValue > 0
+                    ? `Discount (${discountValue}%)`
+                    : "Discount"}
+                </dt>
                 <dd className="numeric text-destructive">
                   −{formatCurrency(totals.discountAmount)}
                 </dd>
@@ -723,16 +735,64 @@ export function OrderForm({
 
             {canDiscount ? (
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <FormField label="Discount ₹">
-                  <Input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={discountAmount}
-                    onChange={(event) =>
-                      setDiscountAmount(Math.max(0, Number(event.target.value) || 0))
-                    }
-                  />
+                <FormField
+                  label={discountType === "PERCENT" ? "Discount %" : "Discount ₹"}
+                  hint={
+                    discountType === "PERCENT" && discountValue > 0
+                      ? `= ${formatCurrency(totals.discountAmount)} off`
+                      : undefined
+                  }
+                  error={fieldErrors.discountValue ?? fieldErrors.discountAmount}
+                >
+                  <div className="flex gap-1.5">
+                    <Input
+                      type="number"
+                      min={0}
+                      max={discountType === "PERCENT" ? 100 : undefined}
+                      step="0.01"
+                      value={discountValue}
+                      onChange={(event) => {
+                        const raw = Math.max(0, Number(event.target.value) || 0);
+                        setDiscountValue(
+                          discountType === "PERCENT" ? Math.min(100, raw) : raw,
+                        );
+                      }}
+                    />
+                    <div
+                      className="inline-flex shrink-0 rounded-md border border-input bg-muted/40 p-0.5"
+                      role="group"
+                      aria-label="Discount type"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDiscountType("AMOUNT");
+                          setDiscountValue(totals.discountAmount);
+                        }}
+                        className={`rounded px-2.5 text-xs font-medium transition-colors ${
+                          discountType === "AMOUNT"
+                            ? "bg-background text-foreground shadow-xs"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        ₹
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDiscountType("PERCENT");
+                          setDiscountValue(0);
+                        }}
+                        className={`rounded px-2.5 text-xs font-medium transition-colors ${
+                          discountType === "PERCENT"
+                            ? "bg-background text-foreground shadow-xs"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        %
+                      </button>
+                    </div>
+                  </div>
                 </FormField>
                 <FormField label="GST %">
                   <Input

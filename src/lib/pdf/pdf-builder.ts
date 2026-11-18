@@ -5,6 +5,7 @@ import PDFDocument from "pdfkit";
 import { prisma } from "@/lib/prisma";
 import { amountInWords as amountInWordsHelper } from "@/lib/money";
 import { loadFirmImage } from "./firm-assets";
+import { formatBranchAddress, formatCompanyHeaderTitle } from "./header-format";
 
 /**
  * Neutral defaults only. Brand colour, logo, name, address and terms always
@@ -354,12 +355,13 @@ export class PDFDocumentBuilder {
     // The reference wraps the name/address block at roughly this width.
     const textWidth = Math.min(this.contentWidth - logoBox.w - 24, 175 * (this.pageWidth / 419.53));
 
-    const title = [this.company.name, branch.name].filter(Boolean).join(" - ");
+    const title = formatCompanyHeaderTitle(this.company.name, branch.name);
     this.text(title, this.innerLeft, startY, { bold: true, size: 13.5, width: textWidth, lineGap: 0.7 });
     let y = startY + this.heightOf(title, 13.5, textWidth, true, 0.7) + 2;
 
-    const addressParts = [branch.addressLine, branch.city, branch.state, branch.pincode].filter(Boolean);
-    const address = addressParts.length > 0 ? addressParts.join(", ") : this.company.address;
+    const address =
+      formatBranchAddress([branch.addressLine, branch.city, branch.state, branch.pincode]) ||
+      this.company.address;
     if (address) {
       this.text(address, this.innerLeft, y, { size: 8.7, width: textWidth });
       y += this.heightOf(address, 8.7, textWidth) + 3.3;

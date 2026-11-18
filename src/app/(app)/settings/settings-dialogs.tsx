@@ -39,6 +39,7 @@ import {
   saveTemplateAction,
 } from "@/app/(app)/settings/actions";
 import type { FieldErrors } from "@/lib/action-result";
+import { generateServiceCode } from "@/lib/service-code";
 
 const STAGES = [
   ["SORTING", "Sorting"],
@@ -254,6 +255,7 @@ export function ServiceDialog({
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const [codeEdited, setCodeEdited] = useState(Boolean(service?.code));
   const [form, setForm] = useState({
     code: service?.code ?? "",
     name: service?.name ?? "",
@@ -267,6 +269,14 @@ export function ServiceDialog({
 
   const set = (patch: Partial<typeof form>) =>
     setForm((current) => ({ ...current, ...patch }));
+
+  const handleNameChange = (name: string) => {
+    if (!service && !codeEdited) {
+      set({ name, code: name.trim() ? generateServiceCode(name) : "" });
+    } else {
+      set({ name });
+    }
+  };
 
   const toggleStage = (stage: string, checked: boolean) =>
     set({
@@ -300,15 +310,24 @@ export function ServiceDialog({
         {error ? <FormError message={error} /> : null}
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <FormField label="Code" required error={fieldErrors.code}>
+          <FormField label="Name" required error={fieldErrors.name}>
+            <Input value={form.name} onChange={(event) => handleNameChange(event.target.value)} />
+          </FormField>
+          <FormField
+            label="Code"
+            hint={service ? undefined : "Auto-generated from name"}
+            error={fieldErrors.code}
+          >
             <Input
               value={form.code}
-              onChange={(event) => set({ code: event.target.value.toUpperCase() })}
+              placeholder="Auto-generated"
+              onChange={(event) => {
+                const value = event.target.value.toUpperCase();
+                setCodeEdited(value.trim().length > 0);
+                set({ code: value });
+              }}
               className="font-mono"
             />
-          </FormField>
-          <FormField label="Name" required error={fieldErrors.name}>
-            <Input value={form.name} onChange={(event) => set({ name: event.target.value })} />
           </FormField>
           <FormField label="Charged by">
             <Select
@@ -323,7 +342,10 @@ export function ServiceDialog({
               </SelectContent>
             </Select>
           </FormField>
-          <FormField label="Base price ₹" required>
+          <FormField
+            label="Fallback base price ₹"
+            hint="Optional — set garment-specific prices in Rate matrix"
+          >
             <Input
               type="number"
               min={0}
@@ -522,6 +544,7 @@ export function RateInput({
   garmentTypeId: string;
   price: number | null;
 }) {
+  const router = useRouter();
   const [value, setValue] = useState(price ?? 0);
   const [isPending, startTransition] = useTransition();
 
@@ -543,8 +566,12 @@ export function RateInput({
             garmentTypeId,
             price: value,
           });
-          if (result.ok) toast.success("Rate saved");
-          else toast.error(result.error);
+          if (result.ok) {
+            toast.success("Rate saved");
+            router.refresh();
+          } else {
+            toast.error(result.error);
+          }
         });
       }}
     />

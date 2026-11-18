@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { assertFirmAccess, requirePermission } from "@/lib/session";
 import { PERMISSIONS } from "@/lib/rbac";
 import { getDeliveryChallanById } from "@/lib/services/delivery-challan";
+import { serializeDecimals } from "@/lib/money";
 import { ChallanDetailsClient } from "./challan-details-client";
 
 interface PageProps {
@@ -27,5 +28,5 @@ export default async function DeliveryChallanDetailPage({ params }: PageProps) {
   }
   assertFirmAccess(user, challan.firmId);
 
-  return <ChallanDetailsClient challan={challan} />;
+  return <ChallanDetailsClient challan={serializeDecimals(challan)} />;
 }
