@@ -99,6 +99,8 @@ export async function createOrder(
   const totals = computeTotals({
     subtotal,
     discountAmount: input.discountAmount,
+    discountType: input.discountType,
+    discountValue: input.discountValue,
     gstRate: input.gstRate,
   });
 

@@ -495,6 +495,8 @@ export async function quoteOrderAction(payload: {
   items: { serviceId: string; garmentTypeId: string; quantity: number; weightKg: number }[];
   b2bAccountId?: string | null;
   discountAmount: number;
+  discountType?: "AMOUNT" | "PERCENT";
+  discountValue?: number;
   gstRate: number;
 }): Promise<ActionResult<{
   lines: { unitPrice: number; lineTotal: number; pricingMode: string }[];
@@ -529,6 +531,8 @@ export async function quoteOrderAction(payload: {
     const totals = computeTotals({
       subtotal,
       discountAmount: payload.discountAmount,
+      discountType: payload.discountType,
+      discountValue: payload.discountValue,
       gstRate: payload.gstRate,
     });
 

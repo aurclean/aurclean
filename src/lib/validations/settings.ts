@@ -40,14 +40,18 @@ export const serviceSchema = z.object({
   code: z
     .string()
     .trim()
-    .min(2, "Code is required")
     .max(20)
-    .regex(/^[A-Za-z0-9-]+$/, "Use letters, digits or hyphens only")
-    .transform((value) => value.toUpperCase()),
+    .refine(
+      (value) => value === "" || (value.length >= 2 && /^[A-Za-z0-9-]+$/.test(value)),
+      "Use at least 2 letters, digits or hyphens",
+    )
+    .transform((value) => value.toUpperCase())
+    .optional()
+    .default(""),
   name: z.string().trim().min(2, "Name is required").max(80),
   description: optionalText(300),
   pricingMode: z.enum(["PER_PIECE", "PER_KG", "FLAT"]).default("PER_PIECE"),
-  basePrice: moneySchema,
+  basePrice: moneySchema.default(0),
   turnaroundHours: z.coerce.number().int().min(1).max(720).default(48),
   stages: z
     .array(

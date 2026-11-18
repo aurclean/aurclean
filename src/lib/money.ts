@@ -10,6 +10,31 @@ export function num(value: Decimalish): number {
   return value.toNumber();
 }
 
+/**
+ * Recursively converts Prisma Decimal instances into plain numbers so server
+ * payloads can be passed to Client Components without serialization errors.
+ */
+export function serializeDecimals<T>(value: T): T {
+  if (value === null || value === undefined || typeof value !== "object") {
+    return value;
+  }
+  if (value instanceof Date) {
+    return value;
+  }
+  const maybeDecimal = value as { toNumber?: unknown };
+  if (typeof maybeDecimal.toNumber === "function") {
+    return (maybeDecimal as { toNumber: () => number }).toNumber() as unknown as T;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => serializeDecimals(item)) as unknown as T;
+  }
+  const out: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(value)) {
+    out[key] = serializeDecimals(val);
+  }
+  return out as T;
+}
+
 /** Round to 2 decimal places, avoiding float drift. */
 export function round2(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
@@ -45,9 +70,13 @@ export function formatNumber(value: Decimalish, fractionDigits = 0): string {
   }).format(num(value));
 }
 
+export type DiscountType = "AMOUNT" | "PERCENT";
+
 export interface LineTotalsInput {
   subtotal: number;
-  discountAmount: number;
+  discountAmount?: number;
+  discountType?: DiscountType;
+  discountValue?: number;
   gstRate: number;
 }
 
@@ -61,16 +90,40 @@ export interface OrderTotals {
 }
 
 /**
+ * Resolves a discount expressed either as a flat rupee amount or a percentage
+ * of the subtotal into a clamped rupee amount.
+ */
+export function resolveDiscountAmount(
+  subtotal: number,
+  discountType: DiscountType = "AMOUNT",
+  discountValue = 0,
+): number {
+  const safeSubtotal = round2(Math.max(0, subtotal));
+  const safeValue = Math.max(0, discountValue);
+  if (discountType === "PERCENT") {
+    const clampedPct = Math.min(100, safeValue);
+    return round2((safeSubtotal * clampedPct) / 100);
+  }
+  return round2(Math.min(safeValue, safeSubtotal));
+}
+
+/**
  * Single source of truth for order/invoice arithmetic.
  * Discount applies to the subtotal; GST applies to the discounted (taxable) value.
  */
 export function computeTotals({
   subtotal,
   discountAmount,
+  discountType = "AMOUNT",
+  discountValue,
   gstRate,
 }: LineTotalsInput): OrderTotals {
   const safeSubtotal = round2(Math.max(0, subtotal));
-  const safeDiscount = round2(Math.min(Math.max(0, discountAmount), safeSubtotal));
+  const rawDiscount =
+    discountValue !== undefined
+      ? resolveDiscountAmount(safeSubtotal, discountType, discountValue)
+      : round2(Math.min(Math.max(0, discountAmount ?? 0), safeSubtotal));
+  const safeDiscount = round2(Math.min(Math.max(0, rawDiscount), safeSubtotal));
   const taxableAmount = round2(safeSubtotal - safeDiscount);
   const gstAmount = round2((taxableAmount * Math.max(0, gstRate)) / 100);
   const totalAmount = round2(taxableAmount + gstAmount);

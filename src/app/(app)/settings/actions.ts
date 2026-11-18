@@ -23,6 +23,7 @@ import {
 } from "@/lib/action-result";
 import { formatCurrency } from "@/lib/money";
 import { nextExpenseNumber } from "@/lib/sequence";
+import { generateServiceCode } from "@/lib/service-code";
 import { resendNotification } from "@/lib/services/notifications";
 import {
   branchSchema,
@@ -95,9 +96,30 @@ export async function saveServiceAction(
   return runAction(async () => {
     const user = await authorize(PERMISSIONS.CATALOGUE_MANAGE);
     const input = serviceSchema.parse(payload);
+    const firmId = requireFirmId(user);
+
+    let code = input.code;
+    if (!code) {
+      let attempt = 0;
+      let candidate = generateServiceCode(input.name);
+      while (
+        await prisma.service.findFirst({
+          where: {
+            firmId,
+            code: candidate,
+            ...(input.id ? { id: { not: input.id } } : {}),
+          },
+          select: { id: true },
+        })
+      ) {
+        attempt += 1;
+        candidate = generateServiceCode(input.name, String(attempt + 1));
+      }
+      code = candidate;
+    }
 
     const data = {
-      code: input.code,
+      code,
       name: input.name,
       description: input.description ?? null,
       pricingMode: input.pricingMode,
@@ -110,14 +132,14 @@ export async function saveServiceAction(
     if (input.id) {
       const existing = await prisma.service.findUnique({ where: { id: input.id }, select: { firmId: true } });
       if (!existing) throw new BusinessRuleError("Service not found");
-      if (existing.firmId !== requireFirmId(user)) {
+      if (existing.firmId !== firmId) {
         throw new BusinessRuleError("This service belongs to a different organization");
       }
     }
 
     const service = input.id
       ? await prisma.service.update({ where: { id: input.id }, data })
-      : await prisma.service.create({ data: { ...data, firmId: requireFirmId(user) } });
+      : await prisma.service.create({ data: { ...data, firmId } });
 
     await recordAudit({
       userId: user.id,

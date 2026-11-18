@@ -58,6 +58,16 @@ export default async function CataloguePage() {
     ]),
   );
 
+  const rateCountByService = new Map<string, number>();
+  for (const rate of rates) {
+    if (num(rate.price) > 0) {
+      rateCountByService.set(
+        rate.serviceId,
+        (rateCountByService.get(rate.serviceId) ?? 0) + 1,
+      );
+    }
+  }
+
   const activeServices = services.filter((service) => service.isActive);
   const activeTypes = garmentTypes.filter((type) => type.isActive);
 
@@ -122,11 +132,16 @@ export default async function CataloguePage() {
                   <CardContent className="space-y-3">
                     <div className="flex items-baseline justify-between">
                       <span className="text-lg font-semibold numeric">
-                        {formatCurrency(service.basePrice)}
+                        {num(service.basePrice) > 0
+                          ? formatCurrency(service.basePrice)
+                          : "Per garment"}
                       </span>
                       <span className="text-xs text-muted-foreground">
                         {humanize(service.pricingMode)} ·{" "}
                         {service.turnaroundHours}h
+                        {rateCountByService.get(service.id)
+                          ? ` · ${rateCountByService.get(service.id)} garment ${rateCountByService.get(service.id) === 1 ? "rate" : "rates"}`
+                          : " · Set in Rate matrix"}
                       </span>
                     </div>
                     <div className="flex flex-wrap gap-1">
